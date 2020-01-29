@@ -17,7 +17,7 @@ func registerRoutes(app *gin.Engine) {
 	app.Static("/"+config.STORE_DIR_NAME, config.CommonConfig.AbsRunningDir)
 	// http.Dir allows to list the files in the given dir, and can not set
 	// groupRoute path is not allowed, conflict with normal api
-	app.StaticFS("/file", http.Dir(config.CommonConfig.AbsRunningDir+"/"+config.STORE_DIR_NAME))
+	// app.StaticFS("/file", http.Dir(config.CommonConfig.AbsRunningDir+"/"+config.STORE_DIR_NAME))
 	// gin.Dir can set  if allows to list the files in the given dir
 	app.StaticFS("/file", gin.Dir(config.CommonConfig.AbsRunningDir+"/"+config.STORE_DIR_NAME, false))
 
