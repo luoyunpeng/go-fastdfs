@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/ioutil"
 	slog "log"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -39,9 +38,7 @@ import (
 	"github.com/sjqzhang/tusd/filestore"
 )
 
-var (
-	Svr *Server
-)
+var Svr *Server
 
 type Server struct {
 	statMap        *pkg.CommonMap
@@ -49,18 +46,20 @@ type Server struct {
 	rtMap          *pkg.CommonMap
 	queueToPeers   chan FileInfo
 	queueFromPeers chan FileInfo
-	queueFileLog   chan *FileLog
-	QueueUpload    chan WrapReqResp
-	lockMap        *pkg.CommonMap
-	sceneMap       *pkg.CommonMap
-	searchMap      *pkg.CommonMap
-	curDate        string
-	host           string
+	//queueFileLog   chan *FileLog
+	QueueUpload chan WrapReqResp
+	lockMap     *pkg.CommonMap
+	sceneMap    *pkg.CommonMap
+	searchMap   *pkg.CommonMap
+	curDate     string
+	host        string
 }
 
 type WrapReqResp struct {
-	Ctx  *gin.Context
-	Done chan bool
+	Ctx            *gin.Context
+	TempFileName   string
+	HeaderFileName string
+	Done           chan bool
 }
 
 func NewServer(conf *config.Config) *Server {
@@ -72,9 +71,9 @@ func NewServer(conf *config.Config) *Server {
 		searchMap:      pkg.NewCommonMap(),
 		queueToPeers:   make(chan FileInfo, conf.QueueSize()),
 		queueFromPeers: make(chan FileInfo, conf.QueueSize()),
-		queueFileLog:   make(chan *FileLog, conf.QueueSize()),
-		QueueUpload:    make(chan WrapReqResp, 100),
-		sumMap:         pkg.NewCommonMap(),
+		// queueFileLog:   make(chan *FileLog, conf.QueueSize()),
+		QueueUpload: make(chan WrapReqResp, 100),
+		sumMap:      pkg.NewCommonMap(),
 	}
 
 	defaultTransport := &http.Transport{
@@ -83,7 +82,7 @@ func NewServer(conf *config.Config) *Server {
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
 	}
-	settins := httplib.BeegoHTTPSettings{
+	settings := httplib.BeegoHTTPSettings{
 		UserAgent:        "Go-FastDFS",
 		ConnectTimeout:   15 * time.Second,
 		ReadWriteTimeout: 15 * time.Second,
@@ -91,7 +90,7 @@ func NewServer(conf *config.Config) *Server {
 		DumpBody:         true,
 		Transport:        defaultTransport,
 	}
-	httplib.SetDefaultSetting(settins)
+	httplib.SetDefaultSetting(settings)
 	server.statMap.Put(conf.StatisticsFileCountKey(), int64(0))
 	server.statMap.Put(conf.StatFileTotalSizeKey(), int64(0))
 	server.statMap.Put(pkg.GetToDay()+"_"+conf.StatisticsFileCountKey(), int64(0))
@@ -129,23 +128,23 @@ func (svr *Server) WatchFilesChange(conf *config.Config) {
 					continue
 				}
 
-				fpath := strings.Replace(event.Path, curDir+string(os.PathSeparator), "", 1)
+				fPath := strings.Replace(event.Path, curDir+string(os.PathSeparator), "", 1)
 				if isLink {
-					fpath = strings.Replace(event.Path, curDir, conf.StoreDir(), 1)
+					fPath = strings.Replace(event.Path, curDir, conf.StoreDir(), 1)
 				}
-				fpath = strings.Replace(fpath, string(os.PathSeparator), "/", -1)
-				sum := pkg.MD5(fpath)
+				fPath = strings.Replace(fPath, string(os.PathSeparator), "/", -1)
+				sum := pkg.MD5(fPath)
 				fileInfo := FileInfo{
 					Size:      event.Size(),
 					Name:      event.Name(),
-					Path:      strings.TrimSuffix(fpath, "/"+event.Name()), // files/default/20190927/xxx
+					Path:      strings.TrimSuffix(fPath, "/"+event.Name()), // files/default/20190927/xxx
 					Md5:       sum,
 					TimeStamp: event.ModTime().Unix(),
 					Peers:     []string{svr.host},
 					OffSet:    -2,
 					op:        event.Op.String(),
 				}
-				log.Info(fmt.Sprintf("WatchFilesChange op:%s path:%s", event.Op.String(), fpath))
+				log.Info(fmt.Sprintf("WatchFilesChange op:%s path:%s", event.Op.String(), fPath))
 				qchan <- &fileInfo
 				//svr.AppendToQueue(&fileInfo)
 			case err := <-w.Error:
@@ -429,63 +428,44 @@ func DownloadSmallFileByURI(ctx *gin.Context, conf *config.Config) (bool, error)
 }
 
 func (svr *Server) SaveFileMd5Log(fileInfo *FileInfo, filename string, conf *config.Config) {
-	var info FileInfo
+	//for len(svr.queueFileLog)+len(svr.queueFileLog)/10 > conf.QueueSize() {
+	//	time.Sleep(time.Second * 1)
+	//}
 
-	for len(svr.queueFileLog)+len(svr.queueFileLog)/10 > conf.QueueSize() {
-		time.Sleep(time.Second * 1)
-	}
-
-	info = *fileInfo
-	svr.queueFileLog <- &FileLog{FileInfo: &info, FileName: filename}
+	// will received by saveFileMd5Log,
+	// TODO: Remove ? svr.queueFileLog <- &FileLog{FileInfo: fileInfo, FileName: filename}
+	go svr.saveFileMd5Log(fileInfo, filename, conf)
 }
 
 func (svr *Server) saveFileMd5Log(fileInfo *FileInfo, filename string, conf *config.Config) {
-	var (
-		err      error
-		outName  string
-		logDate  string
-		ok       bool
-		fullPath string
-		md5Path  string
-		logKey   string
-	)
-
-	defer func() {
-		if re := recover(); re != nil {
-			buffer := debug.Stack()
-			log.Error("saveFileMd5Log")
-			log.Error(re)
-			log.Error(string(buffer))
-		}
-	}()
-
 	if fileInfo == nil || fileInfo.Md5 == "" || filename == "" {
 		log.Warn("saveFileMd5Log", fileInfo, filename)
 		return
 	}
 
-	logDate = pkg.GetDayFromTimeStamp(fileInfo.TimeStamp)
-	outName = fileInfo.Name
+	logDate := pkg.GetDayFromTimeStamp(fileInfo.TimeStamp)
+	fileName := fileInfo.Name
 	if fileInfo.ReName != "" {
-		outName = fileInfo.ReName
+		fileName = fileInfo.ReName
 	}
 
-	fullPath = fileInfo.Path + "/" + outName
-	logKey = fmt.Sprintf("%s_%s_%s", logDate, filename, fileInfo.Md5)
+	filePath := fileInfo.Path + "/" + fileName
+	_ = conf.StoreDir() + "/" + filePath
+	logKey := fmt.Sprintf("%s_%s_%s", logDate, filename, fileInfo.Md5)
 	if filename == conf.FileMd5() {
 		//svr.searchMap.Put(fileInfo.Md5, fileInfo.Name)
-		if ok, err = ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); !ok {
+		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); !ok {
 			svr.statMap.AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), 1)
 			svr.statMap.AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), fileInfo.Size)
 			svr.SaveStat(conf)
 		}
-		if _, err = svr.SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf); err != nil {
+		if _, err := svr.SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf); err != nil {
 			log.Error(err)
 		}
 		if _, err := svr.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
-		if _, err = svr.SaveFileInfoToLevelDB(pkg.MD5(fullPath), fileInfo, conf.LevelDB(), conf); err != nil {
+		if _, err := svr.SaveFileInfoToLevelDB(pkg.MD5(filePath), fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
 
@@ -494,18 +474,18 @@ func (svr *Server) saveFileMd5Log(fileInfo *FileInfo, filename string, conf *con
 
 	if filename == conf.RemoveMd5File() {
 		//svr.searchMap.Remove(fileInfo.Md5)
-		if ok, err = ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); ok {
+		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); ok {
 			svr.statMap.AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), -1)
 			svr.statMap.AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), -fileInfo.Size)
 			svr.SaveStat(conf)
 		}
 
 		RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
-		md5Path = pkg.MD5(fullPath)
+		md5Path := pkg.MD5(filePath)
 		if err := RemoveKeyFromLevelDB(fileInfo.Md5, conf.LevelDB()); err != nil {
 			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
 		}
-		if err = RemoveKeyFromLevelDB(md5Path, conf.LevelDB()); err != nil {
+		if err := RemoveKeyFromLevelDB(md5Path, conf.LevelDB()); err != nil {
 			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
 		}
 
@@ -648,24 +628,15 @@ func GetRequestURI(action string) string {
 	return "/" + action
 }
 
-func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
+func (svr *Server) upload(ctx *gin.Context, conf *config.Config, headerFileName, tempFileName string) {
 	var (
-		err          error
-		ok           bool
-		md5sum       string
-		fileName     string
-		fileInfo     FileInfo
-		uploadFile   multipart.File
-		uploadHeader *multipart.FileHeader
-		scene        string
-		output       string
-		fileResult   FileResult
-		code         string
-		secret       interface{}
+		fileInfo   FileInfo
+		fileResult FileResult
 	)
+
 	r := ctx.Request
 	w := ctx.Writer
-	output = ctx.Query("output")
+	output := ctx.PostForm("output")
 
 	if conf.AuthUrl() != "" {
 		if !CheckAuth(r, conf) {
@@ -676,26 +647,27 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
 		}
 	}
 
-	md5sum = ctx.Query("md5")
-	fileName = ctx.Query("filename")
-	output = ctx.Query("output")
+	md5sum := ctx.PostForm("md5")
+	fileName := ctx.PostForm("filename")
+	output = ctx.PostForm("output")
 	if conf.ReadOnly() {
 		ctx.JSON(http.StatusNotFound, "(error) readonly")
 		return
 	}
+
 	if conf.EnableCustomPath() {
-		fileInfo.Path = ctx.Query("path")
+		fileInfo.Path = ctx.PostForm("path")
 		fileInfo.Path = strings.Trim(fileInfo.Path, "/")
 	}
-	scene = ctx.Query("scene")
-	code = ctx.Query("code")
+	scene := ctx.PostForm("scene")
+	code := ctx.PostForm("code")
 	if scene == "" {
 		//Just for Compatibility
-		scene = ctx.Query("scenes")
+		scene = ctx.PostForm("scenes")
 	}
 	//Read: default not enable google auth
 	if conf.EnableGoogleAuth() && scene != "" {
-		if secret, ok = svr.sceneMap.GetValue(scene); ok {
+		if secret, ok := svr.sceneMap.GetValue(scene); ok {
 			if !VerifyGoogleCode(secret.(string), code, int64(conf.DownloadTokenExpire()/30)) {
 				pkg.NotPermit(w)
 				ctx.JSON(http.StatusUnauthorized, "invalid request,error google code")
@@ -707,11 +679,6 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
 	fileInfo.Md5 = md5sum
 	fileInfo.ReName = fileName
 	fileInfo.OffSet = -1
-	if uploadFile, uploadHeader, err = r.FormFile("file"); err != nil {
-		log.Error(err)
-		ctx.JSON(http.StatusNotFound, err.Error())
-		return
-	}
 
 	fileInfo.Peers = []string{}
 	fileInfo.TimeStamp = time.Now().Unix()
@@ -722,17 +689,17 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
 		output = "text" //Read: default output = "json"
 	}
 	if !pkg.Contains(output, []string{"json", "text"}) {
-		ctx.JSON(http.StatusNotFound, "output just support json or text")
+		ctx.JSON(http.StatusBadRequest, "output just support json or text")
 		return
 	}
 
 	fileInfo.Scene = scene
-	if _, err = CheckScene(scene, conf); err != nil {
-		ctx.JSON(http.StatusNotFound, err.Error())
+	if _, err := CheckScene(scene, conf); err != nil {
+		ctx.JSON(http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if _, err = SaveUploadFile(uploadFile, uploadHeader, &fileInfo, r, conf); err != nil {
+	if _, err := SaveUploadFile(headerFileName, tempFileName, &fileInfo, r, conf); err != nil {
 		ctx.JSON(http.StatusNotFound, err.Error())
 		return
 	}
@@ -741,9 +708,9 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
 		if v, _ := GetFileInfoFromLevelDB(fileInfo.Md5, conf); v != nil && v.Md5 != "" {
 			fileResult = BuildFileResult(v, r.Host, conf)
 			if conf.RenameFile() {
-				os.Remove(fileInfo.Path + "/" + fileInfo.ReName)
+				os.Remove(conf.StoreDir() + "/" + fileInfo.Path + "/" + fileInfo.ReName)
 			} else {
-				os.Remove(fileInfo.Path + "/" + fileInfo.Name)
+				os.Remove(conf.StoreDir() + "/" + fileInfo.Path + "/" + fileInfo.Name)
 			}
 
 			ctx.JSON(http.StatusOK, fileResult)
@@ -753,22 +720,22 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config) {
 
 	if fileInfo.Md5 == "" {
 		log.Warn(" fileInfo.Md5 is null")
-		ctx.JSON(http.StatusNotFound, "fileInfo.Md5 is null")
+		ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 is null")
 		return
 	}
 
 	if md5sum != "" && fileInfo.Md5 != md5sum {
 		log.Warn(" fileInfo.Md5 and md5sum !=")
-		ctx.JSON(http.StatusNotFound, "fileInfo.Md5 and md5sum !=")
+		ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 and md5sum !=")
 		return
 	}
 
 	if !conf.EnableDistinctFile() {
-		// bugfix filecount stat
+		// TODO: bug fix file-count stat
 		fileInfo.Md5 = pkg.MD5(GetFilePathByInfo(&fileInfo, false))
 	}
 	if conf.EnableMergeSmallFile() && fileInfo.Size < int64(conf.SmallFileSize()) {
-		if err = svr.SaveSmallFile(&fileInfo, conf); err != nil {
+		if err := svr.SaveSmallFile(&fileInfo, conf); err != nil {
 			log.Error(err)
 			ctx.JSON(http.StatusNotFound, err.Error())
 			return
@@ -1038,9 +1005,9 @@ func (svr *Server) RemoveDownloading(conf *config.Config) {
 
 func (svr *Server) ConsumerLog(conf *config.Config) {
 	go func() {
-		for fileLog := range svr.queueFileLog {
-			svr.saveFileMd5Log(fileLog.FileInfo, fileLog.FileName, conf)
-		}
+		//for fileLog := range svr.queueFileLog {
+		//	svr.saveFileMd5Log(fileLog.FileInfo, fileLog.FileName, conf)
+		//}
 	}()
 }
 
@@ -1089,7 +1056,7 @@ func (svr *Server) SaveSearchDict(conf *config.Config) {
 func (svr *Server) ConsumerUpload(conf *config.Config) {
 	ConsumerFunc := func() {
 		for wr := range svr.QueueUpload {
-			svr.upload(wr.Ctx, conf)
+			svr.upload(wr.Ctx, conf, wr.TempFileName, wr.HeaderFileName)
 			svr.rtMap.AddCountInt64(conf.UploadCounterKey(), wr.Ctx.Request.ContentLength)
 			if v, ok := svr.rtMap.GetValue(conf.UploadCounterKey()); ok {
 				if v.(int64) > 1*1024*1024*1024 {
@@ -1213,33 +1180,19 @@ func (svr *Server) AutoRepair(forceRepair bool, conf *config.Config) {
 	AutoRepairFunc(forceRepair)
 }
 
-func (svr *Server) CleanLogLevelDBByDate(date string, filename string, conf *config.Config) {
-	defer func() {
-		if re := recover(); re != nil {
-			buffer := debug.Stack()
-			log.Error("CleanLogLevelDBByDate")
-			log.Error(re)
-			log.Error(string(buffer))
-		}
-	}()
-
-	var (
-		err       error
-		keyPrefix string
-		keys      mapSet.Set
-	)
-
-	keys = mapSet.NewSet()
-	keyPrefix = "%s_%s_"
+func CleanLogLevelDBByDate(date string, filename string, conf *config.Config) {
+	keys := mapSet.NewSet()
+	keyPrefix := "%s_%s_"
 	keyPrefix = fmt.Sprintf(keyPrefix, date, filename)
 	iter := conf.LogLevelDB().NewIterator(levelDBUtil.BytesPrefix([]byte(keyPrefix)), nil)
 	for iter.Next() {
 		keys.Add(string(iter.Value()))
 	}
+
 	iter.Release()
 
 	for key := range keys.Iter() {
-		err = RemoveKeyFromLevelDB(key.(string), conf.LogLevelDB())
+		err := RemoveKeyFromLevelDB(key.(string), conf.LogLevelDB())
 		if err != nil {
 			log.Error(err)
 		}
@@ -1252,7 +1205,7 @@ func (svr *Server) CleanAndBackUp(conf *config.Config) {
 			filenames := []string{conf.Md5QueueFile(), conf.Md5ErrorFile(), conf.RemoveMd5File()}
 			yesterday := pkg.GetDayFromTimeStamp(time.Now().AddDate(0, 0, -1).Unix())
 			for _, filename := range filenames {
-				svr.CleanLogLevelDBByDate(yesterday, filename, conf)
+				CleanLogLevelDBByDate(yesterday, filename, conf)
 			}
 
 			svr.BackUpMetaDataByDate(yesterday, conf)
@@ -1315,7 +1268,7 @@ func (svr *Server) Status(ctx *gin.Context, conf *config.Config) {
 	sts = make(map[string]interface{})
 	sts["Fs.QueueFromPeers"] = len(svr.queueFromPeers)
 	sts["Fs.QueueToPeers"] = len(svr.queueToPeers)
-	sts["Fs.QueueFileLog"] = len(svr.queueFileLog)
+	// sts["Fs.QueueFileLog"] = len(svr.queueFileLog)
 	for _, k := range []string{conf.FileMd5(), conf.Md5ErrorFile(), conf.Md5QueueFile()} {
 		k2 := fmt.Sprintf("%s_%s", today, k)
 		if v, ok = svr.sumMap.GetValue(k2); ok {
@@ -1826,7 +1779,7 @@ func GetFilePathFromRequest(ctx *gin.Context, conf *config.Config) (string, stri
 	return fullPath, smallPath
 }
 
-func SaveUploadFile(file multipart.File, header *multipart.FileHeader, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
+func SaveUploadFile(headerFileName, tempFileName string, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
 	var (
 		err     error
 		outFile *os.File
@@ -1834,10 +1787,8 @@ func SaveUploadFile(file multipart.File, header *multipart.FileHeader, fileInfo 
 		fi      os.FileInfo
 	)
 
-	defer file.Close()
-
-	_, fileInfo.Name = filepath.Split(header.Filename)
-	// bugfix for ie upload file contain fullpath
+	_, fileInfo.Name = filepath.Split(headerFileName)
+	// TODO: bug-fix for ie upload file contain full path
 	if len(conf.Extensions()) > 0 && !pkg.Contains(path.Ext(fileInfo.Name), conf.Extensions()) {
 		return fileInfo, errors.New("(error)file extension mismatch")
 	}
@@ -1845,6 +1796,7 @@ func SaveUploadFile(file multipart.File, header *multipart.FileHeader, fileInfo 
 	if conf.RenameFile() {
 		fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
 	}
+	//TODO: folder set is not good
 	folder = time.Now().Format("20060102/15/04")
 	if conf.PeerId() != "" {
 		folder = fmt.Sprintf(folder+"/%s", conf.PeerId())
@@ -1857,22 +1809,29 @@ func SaveUploadFile(file multipart.File, header *multipart.FileHeader, fileInfo 
 
 	if fileInfo.Path != "" {
 		if strings.HasPrefix(fileInfo.Path, conf.StoreDir()) {
-			folder = fileInfo.Path
+			folder = conf.StoreDir() + "/" + fileInfo.Path
 		} else {
 			folder = conf.StoreDir() + "/" + fileInfo.Path
 		}
 	}
+
 	if !pkg.FileExists(folder) {
 		os.MkdirAll(folder, 0775)
+
+		err := pkg.CreateDirectories(folder, 0777)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	outPath := fmt.Sprintf(folder+"/%s", fileInfo.Name)
 	if fileInfo.ReName != "" {
 		outPath = fmt.Sprintf(folder+"/%s", fileInfo.ReName)
 	}
 	if pkg.FileExists(outPath) && conf.EnableDistinctFile() {
 		for i := 0; i < 10000; i++ {
-			outPath = fmt.Sprintf(folder+"/%d_%s", i, filepath.Base(header.Filename))
-			fileInfo.Name = fmt.Sprintf("%d_%s", i, header.Filename)
+			outPath = fmt.Sprintf(folder+"/%d_%s", i, filepath.Base(headerFileName))
+			fileInfo.Name = fmt.Sprintf("%d_%s", i, headerFileName)
 			if !pkg.FileExists(outPath) {
 				break
 			}
@@ -1881,28 +1840,20 @@ func SaveUploadFile(file multipart.File, header *multipart.FileHeader, fileInfo 
 
 	log.Info(fmt.Sprintf("upload: %s", outPath))
 
-	if outFile, err = os.Create(outPath); err != nil {
-		return fileInfo, err
+	if _, err := pkg.CopyfileRemove(tempFileName, outPath); err != nil {
+		return nil, err
 	}
-	if err != nil {
-		log.Error(err)
-		return fileInfo, errors.New("(error)fail," + err.Error())
-	}
-	defer outFile.Close()
 
-	if _, err = io.Copy(outFile, file); err != nil {
-		log.Error(err)
-		return fileInfo, errors.New("(error)fail," + err.Error())
-	}
-	if fi, err = outFile.Stat(); err != nil {
+	if fi, err = os.Stat(outPath); err != nil {
 		log.Error(err)
 	} else {
 		fileInfo.Size = fi.Size()
 	}
 
-	if fi.Size() != header.Size {
-		return fileInfo, errors.New("(error)file uncomplete")
-	}
+	//if fi.Size() != header.Size {
+	//return fileInfo, errors.New("(error)file uncomplete")
+	//}
+
 	v := "" // pkg.GetFileSum(outFile, config.Commonconfig.FileSumArithmetic)
 	if conf.EnableDistinctFile() {
 		v = pkg.GetFileSum(outFile, conf.FileSumArithmetic())

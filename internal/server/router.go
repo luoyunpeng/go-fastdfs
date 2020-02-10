@@ -41,7 +41,8 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		api.GetMd5sForWeb("/get_md5s_by_date", v1, conf)
 		model.Svr.ReceiveMd5s("/receive_md5s", v1, conf) // ?
 
-		api.Upload("/upload", v1, conf)
+		//POST
+		api.Upload("/file", v1, conf)
 		api.Repair("/repair", v1, conf)
 		api.BackUp("/backup", v1, conf)
 		api.GenGoogleSecret("/gen_google_secret", v1, conf)
@@ -51,7 +52,7 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		api.RepairFileInfo("/repair_fileinfo", v1, conf)
 		model.Svr.SyncFileInfo("/syncfile_info", v1, conf)
 
-		api.RemoveFile("/delete", v1, conf)
+		api.RemoveFile("/file", v1, conf)
 		api.RemoveEmptyDir("/remove_empty_dir", v1, conf)
 	}
 
