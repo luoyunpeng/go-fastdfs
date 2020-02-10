@@ -21,9 +21,9 @@ import (
 // IsPeer check the host that create the request is in the peers
 func IsPeer(r *http.Request, conf *config.Config) bool {
 	var (
-		ip    string
-		peer  string
-		bflag bool
+		ip     string
+		peer   string
+		inside bool
 	)
 
 	//return true
@@ -41,15 +41,15 @@ func IsPeer(r *http.Request, conf *config.Config) bool {
 	}
 
 	ip = "http://" + ip
-	bflag = false
+	inside = false
 	for _, peer = range conf.Peers() {
 		if strings.HasPrefix(peer, ip) {
-			bflag = true
+			inside = true
 			break
 		}
 	}
 
-	return bflag
+	return inside
 }
 
 // CheckClusterStatus

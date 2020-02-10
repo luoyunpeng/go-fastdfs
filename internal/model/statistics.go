@@ -63,32 +63,22 @@ func (svr *Server) RepairStatByDate(date string, conf *config.Config) StatDateFi
 // Read: SaveStat read data from statMap(which is concurrent safe map), check if the
 // "StatisticsFileCountKey" key exists, if exists, then load all statMap data to file "stat.json"
 func (svr *Server) SaveStat(conf *config.Config) {
-	SaveStatFunc := func() {
-		defer func() {
-			if re := recover(); re != nil {
-				buffer := debug.Stack()
-				log.Error("SaveStatFunc")
-				log.Error(re)
-				log.Error(string(buffer))
-			}
-		}()
+	stat := svr.statMap.Get()
+	if v, ok := stat[conf.StatisticsFileCountKey()]; ok {
+		switch v.(type) {
+		case int64, int32, int, float64, float32:
+			if v.(int64) >= 0 {
+				var data []byte
+				var err error
 
-		stat := svr.statMap.Get()
-		if v, ok := stat[conf.StatisticsFileCountKey()]; ok {
-			switch v.(type) {
-			case int64, int32, int, float64, float32:
-				if v.(int64) >= 0 {
-					if data, err := json.Marshal(stat); err != nil {
-						log.Error(err)
-					} else {
-						pkg.WriteBinFile(conf.StatisticsFile(), data)
-					}
+				if data, err = json.Marshal(stat); err != nil {
+					log.Error(err)
 				}
+
+				pkg.WriteBinFile(conf.StatisticsFile(), data)
 			}
 		}
 	}
-
-	SaveStatFunc()
 }
 
 func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {

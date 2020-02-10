@@ -47,17 +47,19 @@ func main() {
 	go model.CheckClusterStatus(conf)
 	go svr.LoadQueueSendToPeer(conf)
 	go svr.ConsumerPostToPeer(conf)
-	go svr.ConsumerLog(conf)
+	// go svr.ConsumerLog(conf)
 	go svr.ConsumerDownLoad(conf)
 	go svr.ConsumerUpload(conf)
 	go svr.RemoveDownloading(conf)
 	if conf.EnableFsNotify() {
 		go svr.WatchFilesChange(conf)
 	}
+
 	//go svr.LoadSearchDict()
 	if conf.EnableMigrate() {
 		go svr.RepairFileInfoFromFile(conf)
 	}
+
 	if conf.AutoRepair() {
 		go func() {
 			for {
@@ -67,6 +69,7 @@ func main() {
 			}
 		}()
 	}
+
 	go func() { // force free memory
 		for {
 			time.Sleep(time.Minute * 1)

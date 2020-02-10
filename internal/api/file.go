@@ -3,11 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -248,6 +248,7 @@ func CheckFileExist(reqPath string, router *gin.RouterGroup, conf *config.Config
 			if fileInfo.ReName != "" {
 				fPath = conf.StoreDir() + "/" + fileInfo.Path + "/" + fileInfo.ReName
 			}
+
 			if pkg.Exist(fPath) {
 				ctx.JSON(http.StatusOK, fileInfo)
 				return
@@ -304,6 +305,7 @@ func CheckFilesExist(path string, router *gin.RouterGroup, conf *config.Config) 
 			ctx.JSON(http.StatusNotFound, "at lease one md5 must given")
 			return
 		}
+
 		for _, m := range md5s {
 			if fileInfo, _ := model.GetFileInfoFromLevelDB(m, conf); fileInfo != nil {
 				if fileInfo.OffSet != -1 {
@@ -316,16 +318,16 @@ func CheckFilesExist(path string, router *gin.RouterGroup, conf *config.Config) 
 				if fileInfo.ReName != "" {
 					filePath = conf.StoreDir() + "/" + fileInfo.Path + "/" + fileInfo.ReName
 				}
+
 				if pkg.Exist(filePath) {
 					fileInfos = append(fileInfos, fileInfo)
-
 					continue
-				} else {
-					if fileInfo.OffSet == -1 {
-						err := model.RemoveKeyFromLevelDB(md5sum, conf.LevelDB()) // when file delete,delete from leveldb
-						if err != nil {
-							log.Warnf("delete %s from levelDB error: ", md5sum, err)
-						}
+				}
+
+				if fileInfo.OffSet == -1 {
+					err := model.RemoveKeyFromLevelDB(md5sum, conf.LevelDB()) // when file delete,delete from leveldb
+					if err != nil {
+						log.Warnf("delete %s from levelDB error: ", md5sum, err)
 					}
 				}
 			}
@@ -344,34 +346,35 @@ func Upload(path string, router *gin.RouterGroup, conf *config.Config) {
 	router.POST(path, func(ctx *gin.Context) {
 		tmpFolder := conf.StoreDir() + "/_tmp/" + pkg.GetToDay()
 		if !pkg.FileExists(tmpFolder) {
-			os.MkdirAll(tmpFolder, 0777)
+			err := pkg.CreateDirectories(tmpFolder, 0777)
+			if err != nil {
+				ctx.JSON(http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 
+		// will remove after copy to target path
 		tmpFileName := tmpFolder + "/" + pkg.GetUUID()
-		tmpFile, err := os.OpenFile(tmpFileName, os.O_RDWR|os.O_CREATE, 0777)
+
+		file, err := ctx.FormFile("file")
 		if err != nil {
+			ctx.JSON(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := ctx.SaveUploadedFile(file, tmpFileName); err != nil {
 			log.Error(err)
-			ctx.JSON(http.StatusNotFound, err.Error())
+			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		defer os.Remove(tmpFileName)
-		defer tmpFile.Close()
+		fileName := filepath.Base(file.Filename)
 
-		if _, err = io.Copy(tmpFile, ctx.Request.Body); err != nil {
-			log.Error(err)
-			ctx.JSON(http.StatusNotFound, err.Error())
-			return
-		}
-
-		uploadFileBody, err := os.Open(tmpFileName)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		ctx.Request.Body = uploadFileBody
 		done := make(chan bool, 1)
-		model.Svr.QueueUpload <- model.WrapReqResp{Ctx: ctx, Done: done}
+		model.Svr.QueueUpload <- model.WrapReqResp{Ctx: ctx,
+			Done:           done,
+			TempFileName:   tmpFileName,
+			HeaderFileName: fileName,
+		}
 
 		<-done
 	})
@@ -383,37 +386,46 @@ func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
 			err      error
 			md5sum   string
 			fileInfo *model.FileInfo
-			fpath    string
+			fPath    string
 			delUrl   string
 			result   model.JsonResult
 			inner    string
 			name     string
 		)
+
 		r := ctx.Request
 		md5sum = ctx.Query("md5")
-		fpath = ctx.Query("path")
+		fPath = ctx.Query("path")
 		inner = ctx.Query("inner")
 		result.Status = "fail"
-		if !model.IsPeer(ctx.Request, conf) {
-			ctx.JSON(http.StatusUnauthorized, model.GetClusterNotPermitMessage(r))
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
 			return
 		}
+
 		if conf.AuthUrl() != "" && !model.CheckAuth(r, conf) {
 			ctx.JSON(http.StatusUnauthorized, "Unauthorized")
 			return
 		}
-		if fpath != "" && md5sum == "" {
-			fpath = strings.Replace(fpath, "/"+conf.FileDownloadPathPrefix(), conf.StoreDir()+"/", 1)
-			md5sum = pkg.MD5(fpath)
+
+		if fPath != "" && md5sum == "" {
+			fPath = strings.Replace(fPath, conf.FileDownloadPathPrefix(), "/", 1)
+			md5sum = pkg.MD5(fPath)
 		}
+
 		if inner != "1" {
 			for _, peer := range conf.Peers() {
+				if peer == conf.Addr() {
+					continue
+				}
+
 				delFile := func(peer string, md5sum string, fileInfo *model.FileInfo) {
-					delUrl = fmt.Sprintf("%s%s", peer, model.GetRequestURI("delete"))
-					req := httplib.Post(delUrl)
+					delUrl = peer + "/" + conf.FileDownloadPathPrefix()
+					req := httplib.Delete(delUrl)
 					req.Param("md5", md5sum)
 					req.Param("inner", "1")
 					req.SetTimeout(time.Second*5, time.Second*10)
+
 					if _, err = req.String(); err != nil {
 						log.Error(err)
 					}
@@ -424,8 +436,8 @@ func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		if len(md5sum) < 32 {
-			result.Message = "md5 unvalid"
-			ctx.JSON(http.StatusNotFound, result)
+			result.Message = "md5 invalid"
+			ctx.JSON(http.StatusBadRequest, result)
 			return
 		}
 
@@ -446,21 +458,21 @@ func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
 		if fileInfo.ReName != "" {
 			name = fileInfo.ReName
 		}
-		fpath = conf.StoreDir() + "/" + fileInfo.Path + "/" + name
-		if fileInfo.Path != "" && pkg.FileExists(fpath) {
+		fPath = conf.StoreDir() + "/" + fileInfo.Path + "/" + name
+		if fileInfo.Path != "" && pkg.FileExists(fPath) {
 			model.Svr.SaveFileMd5Log(fileInfo, conf.RemoveMd5File(), conf)
-			if err = os.Remove(fpath); err != nil {
+			if err = os.Remove(fPath); err != nil {
 				result.Message = err.Error()
 
 				ctx.JSON(http.StatusNotFound, result)
 				return
-			} else {
-				result.Message = "remove success"
-				result.Status = "ok"
-
-				ctx.JSON(http.StatusOK, result)
-				return
 			}
+
+			result.Message = "remove success"
+			result.Status = "ok"
+
+			ctx.JSON(http.StatusOK, result)
+			return
 		}
 
 		result.Message = "fail remove"
@@ -671,19 +683,20 @@ func Search(path string, router *gin.RouterGroup, conf *config.Config) {
 func Repair(path string, router *gin.RouterGroup, conf *config.Config) {
 	router.POST(path, func(ctx *gin.Context) {
 		var (
-			force       string
 			forceRepair bool
 			result      model.JsonResult
 		)
+
 		r := ctx.Request
 		result.Status = "ok"
-		force = ctx.Query("force")
+		force := ctx.PostForm("force")
 		if force == "1" {
 			forceRepair = true
 		}
 
 		if model.IsPeer(r, conf) {
 			go model.Svr.AutoRepair(forceRepair, conf)
+
 			result.Message = "repair job start..."
 			ctx.JSON(http.StatusOK, result)
 			return

@@ -59,7 +59,9 @@ func NewConfig() *Config {
 	return conf
 }
 
-func (c *Config) RegisterExit() {
+func (c *Config) Shutdown() {
+	log.Info("Closing levelDB")
+
 	err := c.LevelDB().Close()
 	if err != nil {
 		log.Info("close levelDB error: ", err)

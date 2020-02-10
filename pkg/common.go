@@ -704,7 +704,7 @@ func GetServerURI(r *http.Request) string {
 // CreateDirectories creates directories for storing photos, metadata and cache files.
 func CreateDirectories(dir string, perm os.FileMode) error {
 	if FileAndExists(dir) {
-		return fmt.Errorf("%s is file and already exists, please checj", dir)
+		return fmt.Errorf("%s is file and already exists, please check", dir)
 	}
 
 	if err := os.MkdirAll(dir, perm); err != nil {
