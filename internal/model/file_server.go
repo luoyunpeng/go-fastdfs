@@ -628,7 +628,7 @@ func GetRequestURI(action string) string {
 	return "/" + action
 }
 
-func (svr *Server) upload(ctx *gin.Context, conf *config.Config, headerFileName, tempFileName string) {
+func (svr *Server) upload(ctx *gin.Context, conf *config.Config, headerFileName, tempFile string) {
 	var (
 		fileInfo   FileInfo
 		fileResult FileResult
@@ -699,7 +699,7 @@ func (svr *Server) upload(ctx *gin.Context, conf *config.Config, headerFileName,
 		return
 	}
 
-	if _, err := SaveUploadFile(headerFileName, tempFileName, &fileInfo, r, conf); err != nil {
+	if _, err := SaveUploadFile(headerFileName, tempFile, &fileInfo, r, conf); err != nil {
 		ctx.JSON(http.StatusNotFound, err.Error())
 		return
 	}
@@ -1056,7 +1056,7 @@ func (svr *Server) SaveSearchDict(conf *config.Config) {
 func (svr *Server) ConsumerUpload(conf *config.Config) {
 	ConsumerFunc := func() {
 		for wr := range svr.QueueUpload {
-			svr.upload(wr.Ctx, conf, wr.TempFileName, wr.HeaderFileName)
+			svr.upload(wr.Ctx, conf, wr.HeaderFileName, wr.TempFileName)
 			svr.rtMap.AddCountInt64(conf.UploadCounterKey(), wr.Ctx.Request.ContentLength)
 			if v, ok := svr.rtMap.GetValue(conf.UploadCounterKey()); ok {
 				if v.(int64) > 1*1024*1024*1024 {
@@ -1779,7 +1779,7 @@ func GetFilePathFromRequest(ctx *gin.Context, conf *config.Config) (string, stri
 	return fullPath, smallPath
 }
 
-func SaveUploadFile(headerFileName, tempFileName string, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
+func SaveUploadFile(headerFileName, tempFile string, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
 	var (
 		err     error
 		outFile *os.File
@@ -1787,7 +1787,7 @@ func SaveUploadFile(headerFileName, tempFileName string, fileInfo *FileInfo, r *
 		fi      os.FileInfo
 	)
 
-	_, fileInfo.Name = filepath.Split(headerFileName)
+	fileInfo.Name = headerFileName
 	// TODO: bug-fix for ie upload file contain full path
 	if len(conf.Extensions()) > 0 && !pkg.Contains(path.Ext(fileInfo.Name), conf.Extensions()) {
 		return fileInfo, errors.New("(error)file extension mismatch")
@@ -1840,7 +1840,7 @@ func SaveUploadFile(headerFileName, tempFileName string, fileInfo *FileInfo, r *
 
 	log.Info(fmt.Sprintf("upload: %s", outPath))
 
-	if _, err := pkg.CopyfileRemove(tempFileName, outPath); err != nil {
+	if _, err := pkg.CopyfileRemove(tempFile, outPath); err != nil {
 		return nil, err
 	}
 
