@@ -393,8 +393,8 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			ctx.JSON(http.StatusNotFound, "file size is zero")
 			return
 		}
-		fileInfo.Size = uploadFileHeader.Size
 
+		fileInfo.Size = uploadFileHeader.Size
 		fileInfo.Name = filepath.Base(uploadFileHeader.Filename)
 		if conf.RenameFile() {
 			fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
@@ -418,15 +418,36 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			uploadFile = uploadDir + "/" + fileInfo.ReName
 		}
 
-		headerUploadFile, err := uploadFileHeader.Open()
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err.Error())
+		tmpFolder := conf.StoreDir() + "/_tmp/" + pkg.Today()
+		if err := pkg.CreateDirectories(tmpFolder, 0777); err != nil {
+			ctx.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer func() {
+			_ = os.Remove(tmpFolder)
+		}()
+
+		// will remove after copy to target path
+		tmpFileName := tmpFolder + "/" + pkg.GetUUID()
+		if err := ctx.SaveUploadedFile(uploadFileHeader, tmpFileName); err != nil {
+			log.Error(err)
+			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		tmpFile, err := os.Open(tmpFileName)
+		if err != nil {
+			log.Error(err)
+			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer func() {
+			_ = tmpFile.Close()
+		}()
+
 		// md5 code or sha1 code
 		if conf.EnableDistinctFile() {
-			fileInfo.Md5 = pkg.GetFileSum(headerUploadFile.(*os.File), conf.FileSumArithmetic())
+			fileInfo.Md5 = pkg.GetFileSum(tmpFile, conf.FileSumArithmetic())
 		} else {
 			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
 		}
@@ -468,7 +489,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			}
 		}
 
-		if err := ctx.SaveUploadedFile(uploadFileHeader, uploadFile); err != nil {
+		if _, err := pkg.CopyfileRemove(tmpFileName, uploadFile); err != nil {
 			log.Error(err)
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
