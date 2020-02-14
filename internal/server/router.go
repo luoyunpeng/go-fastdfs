@@ -38,6 +38,11 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		api.Search("/search", v1, conf)
 		api.ListDir("/list-dir", v1, conf)
 
+		//server info
+		api.Addr("/addr", v1, conf)
+		api.Peers("/peers", v1, conf)
+		api.PeerID("/peerID", v1, conf)
+
 		api.GetMd5sForWeb("/get_md5s_by_date", v1, conf)
 		model.Svr.ReceiveMd5s("/receive_md5s", v1, conf) // ?
 
