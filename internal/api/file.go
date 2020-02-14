@@ -396,14 +396,14 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 
 		fileInfo.Size = uploadFileHeader.Size
 		fileInfo.Name = filepath.Base(uploadFileHeader.Filename)
-		if conf.RenameFile() {
+		if conf.RenameFile() && fileInfo.ReName == "" {
 			fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
 		}
 		// if path not set, create dir by current date
 		uploadDir := path.Join(conf.StoreDir(), fileInfo.Scene, conf.PeerId(), pkg.FormatTimeByHour(time.Now()))
 		if fileInfo.Path != "" {
 			uploadDir = strings.Split(fileInfo.Path, conf.StoreDir())[0]
-			uploadDir = conf.StoreDir() + "/" + fileInfo.Path
+			uploadDir = path.Join(conf.StoreDir(), fileInfo.Path)
 		}
 
 		// create the upload dir, no need to check if it exists
@@ -418,7 +418,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			uploadFile = uploadDir + "/" + fileInfo.ReName
 		}
 
-		tmpFolder := conf.StoreDir() + "/_tmp/" + pkg.Today()
+		tmpFolder := path.Join(conf.StoreDir(), "tmp", pkg.Today())
 		if err := pkg.CreateDirectories(tmpFolder, 0777); err != nil {
 			ctx.JSON(http.StatusInternalServerError, err.Error())
 			return
@@ -452,6 +452,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
 		}
 
+		// o size file, or something else
 		if fileInfo.Md5 == "" {
 			log.Warn(" fileInfo.Md5 is null")
 			ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 is null, please check your file")
@@ -470,7 +471,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		if conf.EnableDistinctFile() {
 			if v, _ := model.GetFileInfoFromLevelDB(fileInfo.Md5, conf); v != nil && v.Md5 != "" && v.Path == fileInfo.Path {
 				fileResult := model.BuildFileResult(v, ctx.Request.Host, conf)
-
+				_ = os.Remove(tmpFileName)
 				// TODO: consider if custom path is not same,
 				ctx.JSON(http.StatusOK, fileResult.Url)
 				return
