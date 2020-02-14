@@ -2,23 +2,23 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/luoyunpeng/go-fastdfs/pkg"
 )
 
 func main() {
+	fmt.Println("today: ", pkg.Today())
+	hour := pkg.FormatTimeByHour(time.Now())
+	fmt.Println("now:", hour, "***", len(hour))
 
-	fmt.Println("today: ", pkg.GetToDay())
-	name := os.Args[0]
-	fmt.Println("name:", name)
-	appDir, _ := filepath.Abs(filepath.Dir(name))
-	curDir, _ := filepath.Abs(".")
-
-	fmt.Println("app dir: ", appDir)
-	fmt.Println("cur dir: ", curDir)
+	dir := "svg/"
+	paht := "files/hub"
+	dir = strings.Split(dir, paht)[0]
+	fmt.Println(dir)
+	fmt.Println(path.Join("/opt/demo/file", "/opt/demo"))
 }
 
 func app() {

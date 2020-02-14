@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -48,43 +49,31 @@ func RemoveEmptyDir(path string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		ctx.JSON(http.StatusUnauthorized, model.GetClusterNotPermitMessage(r))
+		ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
 	})
 }
 
 //ListDir list all file in given dir
 func ListDir(path string, router *gin.RouterGroup, conf *config.Config) {
 	router.GET(path, func(ctx *gin.Context) {
-		var (
-			result      model.JsonResult
-			dir         string
-			filesInfo   []os.FileInfo
-			err         error
-			filesResult []model.FileInfoResult
-			tmpDir      string
-		)
+		var filesResult []model.FileInfoResult
+
 		r := ctx.Request
 		if !model.IsPeer(r, conf) {
-			result.Message = model.GetClusterNotPermitMessage(r)
-			ctx.JSON(http.StatusNotAcceptable, result)
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
 			return
 		}
 
-		dir = ctx.Query("dir")
-		//if dir == "" {
-		//	result.Message = "dir can't null"
-		//	w.Write([]byte(pkg.JsonEncodePretty(result)))
-		//	return
-		//}
+		dir := ctx.Query("dir")
 		dir = strings.Replace(dir, ".", "", -1)
-		if tmpDir, err = os.Readlink(dir); err == nil {
+		if tmpDir, err := os.Readlink(dir); err == nil {
 			dir = tmpDir
 		}
-		filesInfo, err = ioutil.ReadDir(conf.StoreDir() + "/" + dir)
+		filesInfo, err := ioutil.ReadDir(conf.StoreDir() + "/" + dir)
 		if err != nil {
 			log.Error(err)
-			result.Message = err.Error()
-			ctx.JSON(http.StatusNotFound, result)
+
+			ctx.JSON(http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -100,10 +89,7 @@ func ListDir(path string, router *gin.RouterGroup, conf *config.Config) {
 			filesResult = append(filesResult, fi)
 		}
 
-		result.Status = "ok"
-		result.Data = filesResult
-
-		ctx.JSON(http.StatusOK, result)
+		ctx.JSON(http.StatusOK, filesResult)
 	})
 }
 
@@ -170,11 +156,11 @@ func GetMd5sForWeb(path string, router *gin.RouterGroup, conf *config.Config) {
 
 		r := ctx.Request
 		if !model.IsPeer(r, conf) {
-			ctx.JSON(http.StatusNotFound, model.GetClusterNotPermitMessage(r))
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
 			return
 		}
 
-		date = r.FormValue("date")
+		date = ctx.Query("date")
 		if result, err = model.GetMd5sByDate(date, conf.FileMd5Name(), conf); err != nil {
 			log.Error(err)
 			ctx.JSON(http.StatusNotFound, err.Error())
@@ -196,6 +182,7 @@ func GetMd5sForWeb(path string, router *gin.RouterGroup, conf *config.Config) {
 func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 	router.GET(uri, func(ctx *gin.Context) {
 		var fileInfo os.FileInfo
+		var err error
 
 		reqURI := ctx.Request.RequestURI
 		// if params is not enough then redirect to upload
@@ -213,7 +200,7 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 
 		fullPath, smallPath := model.GetFilePathFromRequest(ctx, conf)
 		if smallPath == "" {
-			if _, err := os.Stat(fullPath); err != nil {
+			if fileInfo, err = os.Stat(fullPath); err != nil {
 				model.Svr.DownloadNotFound(ctx, conf)
 				return
 			}
@@ -223,7 +210,7 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 				return
 			}
 
-			model.DownloadNormalFileByURI(ctx, conf)
+			_, _ = model.DownloadNormalFileByURI(ctx, conf)
 			return
 		}
 
@@ -342,41 +329,167 @@ func CheckFilesExist(path string, router *gin.RouterGroup, conf *config.Config) 
 	})
 }
 
-func Upload(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.POST(path, func(ctx *gin.Context) {
-		tmpFolder := conf.StoreDir() + "/_tmp/" + pkg.GetToDay()
-		if !pkg.FileExists(tmpFolder) {
-			err := pkg.CreateDirectories(tmpFolder, 0777)
-			if err != nil {
-				ctx.JSON(http.StatusBadRequest, err.Error())
+// Upload
+//
+func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.POST(relativePath, func(ctx *gin.Context) {
+		if conf.ReadOnly() {
+			ctx.JSON(http.StatusForbidden, "file server read-only")
+			return
+		}
+
+		if conf.AuthUrl() != "" {
+			r := ctx.Request
+			if !model.CheckAuth(r, conf) {
+				log.Warn("auth fail", r.Form)
+				ctx.JSON(http.StatusUnauthorized, "auth fail")
 				return
 			}
 		}
 
-		// will remove after copy to target path
-		tmpFileName := tmpFolder + "/" + pkg.GetUUID()
+		scene := ctx.PostForm("scene")
+		if scene == "" {
+			scene = conf.DefaultScene()
+		}
+		if _, err := model.CheckScene(scene, conf); err != nil {
+			ctx.JSON(http.StatusBadRequest, err.Error())
+			return
+		}
 
-		file, err := ctx.FormFile("file")
+		code := ctx.PostForm("code")
+		//Read: default not enable google auth
+		if conf.EnableGoogleAuth() && scene != "" {
+			if secret, ok := model.Svr.SceneMap.GetValue(scene); ok {
+				if !model.VerifyGoogleCode(secret.(string), code, int64(conf.DownloadTokenExpire()/30)) {
+					ctx.JSON(http.StatusUnauthorized, "invalid request,error google code")
+					return
+				}
+			}
+		}
+
+		fileInfo := model.FileInfo{}
+		customFileName := ctx.PostForm("filename")
+		md5sum := ctx.PostForm("md5")
+		fileInfo.Md5 = md5sum
+		fileInfo.ReName = customFileName
+		fileInfo.OffSet = -1
+		fileInfo.Peers = []string{}
+		fileInfo.TimeStamp = time.Now().Unix()
+		fileInfo.Scene = scene
+
+		if conf.EnableCustomPath() {
+			fileInfo.Path = ctx.PostForm("path")
+			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
+		}
+
+		uploadFileHeader, err := ctx.FormFile("file")
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, err.Error())
 			return
 		}
 
-		if err := ctx.SaveUploadedFile(file, tmpFileName); err != nil {
+		if uploadFileHeader.Size <= 0 {
+			log.Error("file size is zero")
+			ctx.JSON(http.StatusNotFound, "file size is zero")
+			return
+		}
+		fileInfo.Size = uploadFileHeader.Size
+
+		fileInfo.Name = filepath.Base(uploadFileHeader.Filename)
+		if conf.RenameFile() {
+			fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
+		}
+		// if path not set, create dir by current date
+		uploadDir := path.Join(conf.StoreDir(), fileInfo.Scene, conf.PeerId(), pkg.FormatTimeByHour(time.Now()))
+		if fileInfo.Path != "" {
+			uploadDir = strings.Split(fileInfo.Path, conf.StoreDir())[0]
+			uploadDir = conf.StoreDir() + "/" + fileInfo.Path
+		}
+
+		// create the upload dir, no need to check if it exists
+		if err := pkg.CreateDirectories(uploadDir, 0777); err != nil {
+			log.Errorf("create upload dir error: %v", err)
+			ctx.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		uploadFile := uploadDir + "/" + fileInfo.Name
+		if fileInfo.ReName != "" {
+			uploadFile = uploadDir + "/" + fileInfo.ReName
+		}
+
+		headerUploadFile, err := uploadFileHeader.Open()
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// md5 code or sha1 code
+		if conf.EnableDistinctFile() {
+			fileInfo.Md5 = pkg.GetFileSum(headerUploadFile.(*os.File), conf.FileSumArithmetic())
+		} else {
+			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
+		}
+
+		if fileInfo.Md5 == "" {
+			log.Warn(" fileInfo.Md5 is null")
+			ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 is null, please check your file")
+			return
+		}
+
+		if md5sum != "" && fileInfo.Md5 != md5sum {
+			log.Warn(" fileInfo.Md5 and md5sum !=")
+			ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 and md5sum !=")
+			return
+		}
+
+		//fileInfo.Path = folder //strings.Replace( folder,DOCKER_DIR,"",1)
+		fileInfo.Peers = append(fileInfo.Peers, conf.Addr())
+
+		if conf.EnableDistinctFile() {
+			if v, _ := model.GetFileInfoFromLevelDB(fileInfo.Md5, conf); v != nil && v.Md5 != "" && v.Path == fileInfo.Path {
+				fileResult := model.BuildFileResult(v, ctx.Request.Host, conf)
+
+				// TODO: consider if custom path is not same,
+				ctx.JSON(http.StatusOK, fileResult.Url)
+				return
+			}
+		}
+
+		if !conf.EnableDistinctFile() {
+			// TODO: bug fix file-count stat
+			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
+		}
+		if conf.EnableMergeSmallFile() && fileInfo.Size < int64(conf.SmallFileSize()) {
+			if err := model.Svr.SaveSmallFile(&fileInfo, conf); err != nil {
+				log.Error(err)
+				ctx.JSON(http.StatusNotFound, err.Error())
+				return
+			}
+		}
+
+		if err := ctx.SaveUploadedFile(uploadFileHeader, uploadFile); err != nil {
 			log.Error(err)
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		fileName := filepath.Base(file.Filename)
 
-		done := make(chan bool, 1)
-		model.Svr.QueueUpload <- model.WrapReqResp{Ctx: ctx,
-			Done:           done,
-			TempFileName:   tmpFileName,
-			HeaderFileName: fileName,
+		model.Svr.SaveFileMd5Log(&fileInfo, conf.FileMd5(), conf) //maybe slow
+		go model.Svr.PostFileToPeer(&fileInfo, conf)
+
+		// TODO: use upload worker
+		// model.Svr.InternalUpload(ctx, conf, fileInfo)
+		model.Svr.RtMap.AddCountInt64(conf.UploadCounterKey(), ctx.Request.ContentLength)
+		if v, ok := model.Svr.RtMap.GetValue(conf.UploadCounterKey()); ok {
+			if v.(int64) > 1*1024*1024*1024 {
+				var _v int64
+				model.Svr.RtMap.Put(conf.UploadCounterKey(), _v)
+				debug.FreeOSMemory()
+			}
 		}
 
-		<-done
+		log.Info(fmt.Sprintf("upload: %s", uploadFile))
+		ctx.JSON(http.StatusOK, model.BuildFileResult(&fileInfo, ctx.Request.Host, conf))
 	})
 }
 
@@ -517,14 +630,13 @@ func Reload(path string, router *gin.RouterGroup, conf *config.Config) {
 
 		r := ctx.Request
 		result.Status = "fail"
-		r.ParseForm()
 		if !model.IsPeer(r, conf) {
 			ctx.JSON(http.StatusNotFound, model.GetClusterNotPermitMessage(r))
 			return
 		}
 
-		cfgJson = r.FormValue("cfg")
-		action = r.FormValue("action")
+		cfgJson = ctx.PostForm("cfg")
+		action = ctx.PostForm("action")
 		_ = cfgJson
 		if action == "get" {
 			result.Data = conf
@@ -595,7 +707,7 @@ func BackUp(path string, router *gin.RouterGroup, conf *config.Config) {
 		date = ctx.Query("date")
 		inner = ctx.Query("inner")
 		if date == "" {
-			date = pkg.GetToDay()
+			date = pkg.Today()
 		}
 
 		if model.IsPeer(r, conf) {
@@ -657,7 +769,7 @@ func Search(path string, router *gin.RouterGroup, conf *config.Config) {
 				continue
 			}
 
-			if strings.Contains(fileInfo.Name, kw) && !pkg.Contains(fileInfo.Md5, md5s) {
+			if strings.Contains(fileInfo.Name, kw) && !pkg.Contains(md5s, fileInfo.Md5) {
 				count = count + 1
 				fileInfos = append(fileInfos, fileInfo)
 				md5s = append(md5s, fileInfo.Md5)

@@ -255,12 +255,25 @@ func RandInt(min, max int) int {
 	return r.Intn(max-min) + min
 }
 
-// GetToDay get today's string info
-func GetToDay() string {
+// Today get today's string info
+func Today() string {
+	return FormatTimeByDay(time.Now())
+}
+
+func FormatTimeByDay(t time.Time) string {
 	var tmp [8]byte
 	tmpSlice := tmp[:0]
 
 	time.Now().AppendFormat(tmpSlice, "20060102")
+
+	return string(tmp[:])
+}
+
+func FormatTimeByHour(t time.Time) string {
+	var tmp [14]byte
+	tmpSlice := tmp[:0]
+
+	time.Now().AppendFormat(tmpSlice, "20060102/15/04")
 
 	return string(tmp[:])
 }
@@ -370,7 +383,6 @@ func GetFileSum(file *os.File, alg string) string {
 	}
 
 	return GetFileMd5(file)
-
 }
 
 func GetFileSumByName(filepath string, alg string) (string, error) {
@@ -436,9 +448,11 @@ func ReadFileByOffSet(filepath string, offset int64, length int) ([]byte, error)
 	return result, nil
 }
 
-func Contains(obj interface{}, arrayObj interface{}) bool {
-	targetValue := reflect.ValueOf(arrayObj)
-	switch reflect.TypeOf(arrayObj).Kind() {
+// Deprecated:
+func Contains_TO_remove(obj interface{}, objContainer interface{}) bool {
+	targetValue := reflect.ValueOf(objContainer)
+
+	switch reflect.TypeOf(objContainer).Kind() {
 	case reflect.Slice, reflect.Array:
 		for i := 0; i < targetValue.Len(); i++ {
 			if targetValue.Index(i).Interface() == obj {
@@ -447,6 +461,16 @@ func Contains(obj interface{}, arrayObj interface{}) bool {
 		}
 	case reflect.Map:
 		if targetValue.MapIndex(reflect.ValueOf(obj)).IsValid() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func Contains(target []string, sub string) bool {
+	for _, v := range target {
+		if v == sub {
 			return true
 		}
 	}

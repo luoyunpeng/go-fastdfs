@@ -18,7 +18,7 @@ func CheckScene(scene string, conf *config.Config) (bool, error) {
 		scenes = append(scenes, strings.Split(s, ":")[0])
 	}
 
-	if !pkg.Contains(scene, scenes) {
+	if !pkg.Contains(scenes, scene) {
 		return false, errors.New("not valid scene")
 	}
 
