@@ -27,7 +27,6 @@ func init() {
 		fmt.Printf("%s\n%s\n%s\n%s\n", Version, BuildTime, GoVersion, GitVersion)
 		os.Exit(0)
 	}
-
 }
 
 func main() {
@@ -37,7 +36,7 @@ func main() {
 	svr := model.Svr
 	go func() {
 		for {
-			svr.CheckFileAndSendToPeer(pkg.GetToDay(), conf.Md5ErrorFile(), false, conf)
+			svr.CheckFileAndSendToPeer(pkg.Today(), conf.Md5ErrorFile(), false, conf)
 			//fmt.Println("CheckFileAndSendToPeer")
 			time.Sleep(time.Second * time.Duration(conf.RefreshInterval()))
 			//svr.pkg.RemoveEmptyDir(STORE_DIR)
@@ -49,7 +48,7 @@ func main() {
 	go svr.ConsumerPostToPeer(conf)
 	// go svr.ConsumerLog(conf)
 	go svr.ConsumerDownLoad(conf)
-	go svr.ConsumerUpload(conf)
+	// go svr.ConsumerUpload(conf)
 	go svr.RemoveDownloading(conf)
 	if conf.EnableFsNotify() {
 		go svr.WatchFilesChange(conf)

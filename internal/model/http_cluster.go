@@ -36,7 +36,7 @@ func IsPeer(r *http.Request, conf *config.Config) bool {
 		return true
 	}
 
-	if pkg.Contains(ip, conf.AdminIps()) {
+	if pkg.Contains(conf.AdminIps(), ip) {
 		return true
 	}
 
@@ -175,7 +175,7 @@ func (svr *Server) DownloadFromPeer(peer string, fileInfo *FileInfo, conf *confi
 			if fi.ModTime().Unix() > fileInfo.TimeStamp {
 				log.Info(fmt.Sprintf("ignore file sync path:%s", GetFilePathByInfo(fileInfo, false)))
 				fileInfo.TimeStamp = fi.ModTime().Unix()
-				svr.postFileToPeer(fileInfo, conf) // keep newer
+				svr.PostFileToPeer(fileInfo, conf) // keep newer
 
 				return
 			}
@@ -332,7 +332,7 @@ func (svr *Server) CheckFileAndSendToPeer(date string, filename string, isForceU
 				continue
 			}
 
-			if !pkg.Contains(svr.host, fileInfo.Peers) {
+			if !pkg.Contains(fileInfo.Peers, svr.host) {
 				fileInfo.Peers = append(fileInfo.Peers, svr.host) // peer is null
 			}
 			if filename == conf.Md5QueueFile() {
@@ -345,7 +345,7 @@ func (svr *Server) CheckFileAndSendToPeer(date string, filename string, isForceU
 	}
 }
 
-func (svr *Server) postFileToPeer(fileInfo *FileInfo, conf *config.Config) {
+func (svr *Server) PostFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 	var (
 		err      error
 		peer     string
@@ -374,7 +374,7 @@ func (svr *Server) postFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 		if fileInfo.Peers == nil {
 			fileInfo.Peers = []string{}
 		}
-		if pkg.Contains(peer, fileInfo.Peers) {
+		if pkg.Contains(fileInfo.Peers, peer) {
 			continue
 		}
 
@@ -436,7 +436,7 @@ func (svr *Server) postFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 		}
 		if strings.HasPrefix(result, "http://") {
 			log.Info(result)
-			if !pkg.Contains(peer, fileInfo.Peers) {
+			if !pkg.Contains(fileInfo.Peers, peer) {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
 				if _, err = svr.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 					log.Error(err)
@@ -502,7 +502,7 @@ func (svr *Server) Sync(path string, router *gin.RouterGroup, conf *config.Confi
 func (svr *Server) ConsumerPostToPeer(conf *config.Config) {
 	ConsumerFunc := func() {
 		for fileInfo := range svr.queueToPeers {
-			svr.postFileToPeer(&fileInfo, conf)
+			svr.PostFileToPeer(&fileInfo, conf)
 		}
 	}
 

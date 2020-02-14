@@ -171,5 +171,5 @@ func (svr *Server) FormatStatInfo(conf *config.Config) {
 		}
 	}
 
-	svr.RepairStatByDate(pkg.GetToDay(), conf)
+	svr.RepairStatByDate(pkg.Today(), conf)
 }

@@ -14,16 +14,11 @@ import (
 // GenGoogleCode generate google code
 func GenGoogleCode(path string, router *gin.RouterGroup, conf *config.Config) {
 	router.POST(path, func(ctx *gin.Context) {
-		var (
-			err    error
-			result model.JsonResult
-			secret string
-			goAuth *googleAuthenticator.GAuth
-		)
+		var result model.JsonResult
 
 		r := ctx.Request
-		goAuth = googleAuthenticator.NewGAuth()
-		secret = ctx.Query("secret")
+		goAuth := googleAuthenticator.NewGAuth()
+		secret := ctx.Query("secret")
 		result.Status = "ok"
 		result.Message = "ok"
 		if !model.IsPeer(r, conf) {
@@ -32,8 +27,9 @@ func GenGoogleCode(path string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		if result.Data, err = goAuth.GetCode(secret); err != nil {
+		if data, err := goAuth.GetCode(secret); err != nil {
 			result.Message = err.Error()
+			result.Data = data
 			ctx.JSON(http.StatusNotFound, result)
 			return
 		}

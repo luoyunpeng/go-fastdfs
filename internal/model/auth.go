@@ -33,7 +33,7 @@ func CheckAuth(r *http.Request, conf *config.Config) bool {
 	req.SetTimeout(time.Second*10, time.Second*10)
 	req.Param("__path__", r.URL.Path)
 	req.Param("__query__", r.URL.RawQuery)
-	for k, _ := range r.Form {
+	for k := range r.Form {
 		req.Param(k, r.FormValue(k))
 	}
 	for k, v := range r.Header {
@@ -136,7 +136,7 @@ func (svr *Server) CheckDownloadAuth(ctx *gin.Context, conf *config.Config) (boo
 		fullPath = strings.Split(fullPath, "?")[0] // just path
 		scene = strings.Split(fullPath, "/")[0]
 		code = r.FormValue("code")
-		if secret, ok = svr.sceneMap.GetValue(scene); ok {
+		if secret, ok = svr.SceneMap.GetValue(scene); ok {
 			if !VerifyGoogleCode(secret.(string), code, int64(conf.DownloadTokenExpire()/30)) {
 				return false, errors.New("invalid google code")
 			}
