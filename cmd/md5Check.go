@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"sync"
 
-	units "github.com/docker/go-units"
+	"github.com/docker/go-units"
+	"github.com/luoyunpeng/go-fastdfs/pkg"
 )
 
 func main() {
-	fmt.Println(units.HumanSize(187350))
 
+	fmt.Println(units.BytesSize(82854982))
+	fmt.Println(pkg.HumanSize(82854982))
 	m := sync.Map{}
 
 	m.Store("zhansan", 25)

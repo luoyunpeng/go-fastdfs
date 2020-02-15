@@ -200,7 +200,7 @@ func SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB, conf 
 	if db == conf.LevelDB() { //search slow ,write fast, double write logDB
 		logDate := pkg.GetDayFromTimeStamp(fileInfo.TimeStamp)
 		logKey := fmt.Sprintf("%s_%s_%s", logDate, conf.FileMd5Name(), fileInfo.Md5)
-		_ = conf.LevelDB().Put([]byte(logKey), data, nil)
+		_ = db.Put([]byte(logKey), data, nil)
 	}
 
 	return fileInfo, nil

@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+
+	"github.com/docker/go-units"
 )
 
 // Returns full path of a file, "~" is replaced with home directory
@@ -53,4 +55,9 @@ func CopyfileRemove(src, dst string) (int64, error) {
 	defer os.Remove(src)
 
 	return io.Copy(df, sf)
+}
+
+func HumanSize(size float64) string {
+	abbr := []string{"B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
+	return units.CustomSize("%.4g %s", size, 1024.0, abbr)
 }
