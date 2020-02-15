@@ -38,8 +38,8 @@ import (
 }*/
 
 // RemoveEmptyDir remove empty dir
-func RemoveEmptyDir(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE(path, func(ctx *gin.Context) {
+func RemoveEmptyDir(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.DELETE(relativePath, func(ctx *gin.Context) {
 		r := ctx.Request
 		if model.IsPeer(r, conf) {
 			pkg.RemoveEmptyDir(conf.DataDir())
@@ -53,8 +53,8 @@ func RemoveEmptyDir(path string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 //ListDir list all file in given dir
-func ListDir(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func ListDir(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var filesResult []model.FileInfoResult
 
 		r := ctx.Request
@@ -93,8 +93,8 @@ func ListDir(path string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // Report
-func Report(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func Report(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var (
 			data           []byte
 			reportFileName string
@@ -131,8 +131,8 @@ func Report(path string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // Index point to upload page
-func Index(uri string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(uri, func(ctx *gin.Context) {
+func Index(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		if conf.EnableWebUpload() {
 			ctx.HTML(http.StatusOK, "upload.tmpl", gin.H{"title": "Main website"})
 			//ctx.Data(http.StatusOK, "text/html", []byte(config.DefaultUploadPage))
@@ -143,8 +143,8 @@ func Index(uri string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // GetMd5sForWeb
-func GetMd5sForWeb(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func GetMd5sForWeb(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var (
 			date   string
 			err    error
@@ -178,8 +178,8 @@ func GetMd5sForWeb(path string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 //
-func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(uri, func(ctx *gin.Context) {
+func Download(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var fileInfo os.FileInfo
 		var err error
 
@@ -219,8 +219,8 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func CheckFileExist(reqPath string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(reqPath, func(ctx *gin.Context) {
+func CheckFileExist(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		md5sum := ctx.Query("md5")
 		fPath := ctx.Query("path")
 
@@ -281,8 +281,8 @@ func CheckFileExist(reqPath string, router *gin.RouterGroup, conf *config.Config
 	})
 }
 
-func CheckFilesExist(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func CheckFilesExist(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var fileInfos []*model.FileInfo
 
 		md5sum := ctx.Query("md5s")
@@ -507,8 +507,8 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE(path, func(ctx *gin.Context) {
+func RemoveFile(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.DELETE(relativePath, func(ctx *gin.Context) {
 		var (
 			err      error
 			md5sum   string
@@ -607,8 +607,8 @@ func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func RepairFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.PUT(path, func(ctx *gin.Context) {
+func RepairFileInfo(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.PUT(relativePath, func(ctx *gin.Context) {
 		var result model.JsonResult
 
 		if !model.IsPeer(ctx.Request, conf) {
@@ -631,8 +631,8 @@ func RepairFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // TODO
-func Reload(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.PUT(path, func(ctx *gin.Context) {
+func Reload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.PUT(relativePath, func(ctx *gin.Context) {
 		var (
 			err     error
 			data    []byte
@@ -706,8 +706,8 @@ func Reload(path string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func BackUp(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.POST(path, func(ctx *gin.Context) {
+func BackUp(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.POST(relativePath, func(ctx *gin.Context) {
 		var (
 			err    error
 			date   string
@@ -756,8 +756,8 @@ func BackUp(path string, router *gin.RouterGroup, conf *config.Config) {
 
 // Notice: performance is poor,just for low capacity,but low memory ,
 //if you want to high performance,use searchMap for search,but memory ....
-func Search(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func Search(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var (
 			result    model.JsonResult
 			err       error
@@ -806,8 +806,8 @@ func Search(path string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func Repair(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.POST(path, func(ctx *gin.Context) {
+func Repair(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.POST(relativePath, func(ctx *gin.Context) {
 		var (
 			forceRepair bool
 			result      model.JsonResult

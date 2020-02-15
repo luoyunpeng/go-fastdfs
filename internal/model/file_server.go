@@ -161,31 +161,26 @@ func WatchFilesChange(conf *config.Config) {
 }
 
 func ParseSmallFile(filename string, conf *config.Config) (string, int64, int, error) {
-	var (
-		err    error
-		offset int64
-		length int
-	)
-
-	err = errors.New("unvalid small file")
+	err := errors.New("unvalid small file")
 	if len(filename) < 3 {
 		return filename, -1, -1, err
 	}
+
 	if strings.Contains(filename, "/") {
 		filename = filename[strings.LastIndex(filename, "/")+1:]
 	}
-
 	pos := strings.Split(filename, ",")
 	if len(pos) < 3 {
 		return filename, -1, -1, err
 	}
 
-	offset, err = strconv.ParseInt(pos[1], 10, 64)
+	offset, err := strconv.ParseInt(pos[1], 10, 64)
 	if err != nil {
 		return filename, -1, -1, err
 	}
 
-	if length, err = strconv.Atoi(pos[2]); err != nil {
+	length, err := strconv.Atoi(pos[2])
+	if err != nil {
 		return filename, offset, -1, err
 	}
 
@@ -454,7 +449,7 @@ func ExistFromLevelDB(key string, db *leveldb.DB) (bool, error) {
 }
 
 func GetFileInfoFromLevelDB(key string, conf *config.Config) (*FileInfo, error) {
-	var fileInfo FileInfo
+	fileInfo := FileInfo{}
 
 	data, err := conf.LevelDB().Get([]byte(key), nil)
 	if err != nil {
@@ -474,14 +469,8 @@ func RemoveKeyFromLevelDB(key string, db *leveldb.DB) error {
 }
 
 // Read: ReceiveMd5s get md5s from request, and append every one that exist in levelDB to queue channel
-func ReceiveMd5s(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
-		var (
-			err      error
-			md5str   string
-			fileInfo *FileInfo
-			md5s     []string
-		)
+func ReceiveMd5s(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		r := ctx.Request
 		if !IsPeer(r, conf) {
 			log.Warn(fmt.Sprintf("ReceiveMd5s %s", pkg.GetClientIp(r)))
@@ -489,12 +478,13 @@ func ReceiveMd5s(path string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		md5str = ctx.Query("md5s")
-		md5s = strings.Split(md5str, ",")
+		md5str := ctx.Query("md5s")
+		md5s := strings.Split(md5str, ",")
 		AppendFunc := func(md5s []string) {
 			for _, m := range md5s {
 				if m != "" {
-					if fileInfo, err = GetFileInfoFromLevelDB(m, conf); err != nil {
+					fileInfo, err := GetFileInfoFromLevelDB(m, conf)
+					if err != nil {
 						log.Error(err)
 						continue
 					}
@@ -510,17 +500,8 @@ func ReceiveMd5s(path string, router *gin.RouterGroup, conf *config.Config) {
 
 // Read: GetMd5sMapByDate use given date and file name to get md5 which will uer to create a commonMap
 func GetMd5sMapByDate(date string, filename string, conf *config.Config) (*pkg.CommonMap, error) {
-	var (
-		err      error
-		result   *pkg.CommonMap
-		filePath string
-		content  string
-		lines    []string
-		line     string
-		cols     []string
-		data     []byte
-	)
-	result = pkg.NewCommonMap()
+	filePath := ""
+	result := pkg.NewCommonMap()
 	if filename == "" {
 		filePath = conf.DataDir() + "/" + date + "/" + conf.FileMd5()
 	} else {
@@ -531,14 +512,15 @@ func GetMd5sMapByDate(date string, filename string, conf *config.Config) (*pkg.C
 		return result, fmt.Errorf("fpath %s not found", filePath)
 	}
 
-	if data, err = ioutil.ReadFile(filePath); err != nil {
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
 		return result, err
 	}
 
-	content = string(data)
-	lines = strings.Split(content, "\n")
-	for _, line = range lines {
-		cols = strings.Split(line, "|")
+	content := string(data)
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		cols := strings.Split(line, "|")
 		if len(cols) > 2 {
 			if _, err = strconv.ParseInt(cols[1], 10, 64); err != nil {
 				continue
@@ -552,18 +534,13 @@ func GetMd5sMapByDate(date string, filename string, conf *config.Config) (*pkg.C
 
 //Read: ??
 func GetMd5sByDate(date string, filename string, conf *config.Config) (mapSet.Set, error) {
-	var (
-		keyPrefix string
-		md5set    mapSet.Set
-		keys      []string
-	)
-
-	md5set = mapSet.NewSet()
-	keyPrefix = "%s_%s_"
+	md5set := mapSet.NewSet()
+	keyPrefix := "%s_%s_"
 	keyPrefix = fmt.Sprintf(keyPrefix, date, filename)
+
 	iter := conf.LogLevelDB().NewIterator(levelDBUtil.BytesPrefix([]byte(keyPrefix)), nil)
 	for iter.Next() {
-		keys = strings.Split(string(iter.Key()), "_")
+		keys := strings.Split(string(iter.Key()), "_")
 		if len(keys) >= 3 {
 			md5set.Add(keys[2])
 		}
@@ -661,54 +638,49 @@ func BenchMark(ctx *gin.Context, conf *config.Config) {
 	fmt.Println(time.Since(t).String())
 }
 
-func RepairStatWeb(ctx *gin.Context, conf *config.Config) {
-	var (
-		result JsonResult
-		date   string
-		inner  string
-	)
+func RepairStatWeb(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.POST(relativePath, func(ctx *gin.Context) {
+		var result JsonResult
 
-	r := ctx.Request
-	if !IsPeer(r, conf) {
-		result.Message = GetClusterNotPermitMessage(r)
-		ctx.JSON(http.StatusNotFound, result)
-		return
-	}
+		r := ctx.Request
+		if !IsPeer(r, conf) {
+			result.Message = GetClusterNotPermitMessage(r)
+			ctx.JSON(http.StatusNotFound, result)
+			return
+		}
 
-	date = ctx.Query("date")
-	inner = ctx.Query("inner")
-	if ok, err := regexp.MatchString("\\d{8}", date); err != nil || !ok {
-		result.Message = "invalid date"
-		ctx.JSON(http.StatusNotFound, result)
-		return
-	}
+		date := ctx.Query("date")
+		inner := ctx.Query("inner")
+		if ok, err := regexp.MatchString("\\d{8}", date); err != nil || !ok {
+			result.Message = "invalid date"
+			ctx.JSON(http.StatusNotFound, result)
+			return
+		}
 
-	if date == "" || len(date) != 8 {
-		date = pkg.Today()
-	}
-	if inner != "1" {
-		for _, peer := range conf.Peers() {
-			req := httplib.Post(peer + GetRequestURI("repair_stat"))
-			req.Param("inner", "1")
-			req.Param("date", date)
-			if _, err := req.String(); err != nil {
-				log.Error(err)
+		if date == "" || len(date) != 8 {
+			date = pkg.Today()
+		}
+		if inner != "1" {
+			for _, peer := range conf.Peers() {
+				req := httplib.Post(peer + GetRequestURI("repair_stat"))
+				req.Param("inner", "1")
+				req.Param("date", date)
+				if _, err := req.String(); err != nil {
+					log.Error(err)
+				}
 			}
 		}
-	}
 
-	result.Data = RepairStatByDate(date, conf)
-	result.Status = "ok"
-
-	ctx.JSON(http.StatusOK, result)
+		result.Data = RepairStatByDate(date, conf)
+		result.Status = "ok"
+		ctx.JSON(http.StatusOK, result)
+	})
 }
 
-func Stat(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func Stat(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var (
 			result   JsonResult
-			inner    string
-			eChart   string
 			category []string
 			barCount []int64
 			barSize  []int64
@@ -722,8 +694,8 @@ func Stat(path string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		inner = ctx.Query("inner")
-		eChart = ctx.Query("echart")
+		inner := ctx.Query("inner")
+		eChart := ctx.Query("echart")
 		data := GetStat(conf)
 		result.Status = "ok"
 		result.Data = data
@@ -806,14 +778,6 @@ func RemoveDownloading(conf *config.Config) {
 	}()
 }
 
-func ConsumerLog(conf *config.Config) {
-	go func() {
-		//for fileLog := range queueFileLog {
-		//	saveFileMd5Log(fileLog.FileInfo, fileLog.FileName, conf)
-		//}
-	}()
-}
-
 func LoadSearchDict(conf *config.Config) {
 	go func() {
 		log.Info("Load search dict ....")
@@ -856,31 +820,6 @@ func SaveSearchDict(conf *config.Config) {
 	}
 }
 
-/*
-// TODO: will remove, use go routine worker pool
-func  ConsumerUpload(conf *config.Config) {
-	ConsumerFunc := func() {
-		for wr := range QueueUpload {
-			InternalUpload(wr.Ctx, conf, FileInfo{})
-			RtMap.AddCountInt64(conf.UploadCounterKey(), wr.Ctx.Request.ContentLength)
-			if v, ok := RtMap.GetValue(conf.UploadCounterKey()); ok {
-				if v.(int64) > 1*1024*1024*1024 {
-					var _v int64
-					RtMap.Put(conf.UploadCounterKey(), _v)
-					debug.FreeOSMemory()
-				}
-			}
-
-			wr.Done <- true
-		}
-	}
-
-	for i := 0; i < conf.UploadWorker(); i++ {
-		go ConsumerFunc()
-	}
-}
-*/
-
 // Read :  AutoRepair what?
 func AutoRepair(forceRepair bool, conf *config.Config) {
 	if conf.LockMap().IsLock("AutoRepair") {
@@ -895,7 +834,6 @@ func AutoRepair(forceRepair bool, conf *config.Config) {
 		var (
 			dateStats []StatDateFileInfo
 			err       error
-			countKey  string
 			md5s      string
 			localSet  mapSet.Set
 			remoteSet mapSet.Set
@@ -937,7 +875,7 @@ func AutoRepair(forceRepair bool, conf *config.Config) {
 					continue
 				}
 
-				countKey = dateStat.Date + "_" + conf.StatisticsFileCountKey()
+				countKey := dateStat.Date + "_" + conf.StatisticsFileCountKey()
 				if v, ok := conf.StatMap().GetValue(countKey); ok {
 					switch v.(type) {
 					case int64:
@@ -1056,79 +994,70 @@ func SearchDict(kw string, conf *config.Config) []FileInfo {
 	return fileInfos
 }
 
-func Status(ctx *gin.Context, conf *config.Config) {
-	var (
-		status   JsonResult
-		sts      map[string]interface{}
-		today    string
-		sumSet   mapSet.Set
-		ok       bool
-		v        interface{}
-		err      error
-		appDir   string
-		diskInfo *disk.UsageStat
-		memInfo  *mem.VirtualMemoryStat
-	)
+func Status(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		var status JsonResult
 
-	memStat := new(runtime.MemStats)
-	runtime.ReadMemStats(memStat)
-	today = pkg.Today()
-	sts = make(map[string]interface{})
-	sts["Fs.QueueFromPeers"] = len(queueFromPeers)
-	sts["Fs.QueueToPeers"] = len(queueToPeers)
-	// sts["Fs.QueueFileLog"] = len(queueFileLog)
-	for _, k := range []string{conf.FileMd5(), conf.Md5ErrorFile(), conf.Md5QueueFile()} {
-		k2 := fmt.Sprintf("%s_%s", today, k)
-		if v, ok = conf.SumMap().GetValue(k2); ok {
-			sumSet = v.(mapSet.Set)
-			if k == conf.Md5QueueFile() {
-				sts["Fs.QueueSetSize"] = sumSet.Cardinality()
-			}
-			if k == conf.Md5ErrorFile() {
-				sts["Fs.ErrorSetSize"] = sumSet.Cardinality()
-			}
-			if k == conf.FileMd5() {
-				sts["Fs.FileSetSize"] = sumSet.Cardinality()
+		memStat := new(runtime.MemStats)
+		runtime.ReadMemStats(memStat)
+		today := pkg.Today()
+		statusMap := make(map[string]interface{})
+		statusMap["Fs.QueueFromPeers"] = len(queueFromPeers)
+		statusMap["Fs.QueueToPeers"] = len(queueToPeers)
+		// sts["Fs.QueueFileLog"] = len(queueFileLog)
+		for _, k := range []string{conf.FileMd5(), conf.Md5ErrorFile(), conf.Md5QueueFile()} {
+			k2 := fmt.Sprintf("%s_%s", today, k)
+			if v, ok := conf.SumMap().GetValue(k2); ok {
+				sumSet := v.(mapSet.Set)
+				if k == conf.Md5QueueFile() {
+					statusMap["Fs.QueueSetSize"] = sumSet.Cardinality()
+				}
+				if k == conf.Md5ErrorFile() {
+					statusMap["Fs.ErrorSetSize"] = sumSet.Cardinality()
+				}
+				if k == conf.FileMd5() {
+					statusMap["Fs.FileSetSize"] = sumSet.Cardinality()
+				}
 			}
 		}
-	}
 
-	sts["Fs.AutoRepair"] = conf.AutoRepair()
-	// sts["Fs.QueueUpload"] = len(conf.QueueUpload)
-	sts["Fs.RefreshInterval"] = conf.RefreshInterval()
-	sts["Fs.Peers"] = conf.Peers()
-	sts["Fs.Local"] = conf.Addr()
-	sts["Fs.FileStats"] = GetStat(conf)
-	sts["Fs.ShowDir"] = conf.ShowDir()
-	sts["Sys.NumGoroutine"] = runtime.NumGoroutine()
-	sts["Sys.NumCpu"] = runtime.NumCPU()
-	sts["Sys.Alloc"] = memStat.Alloc
-	sts["Sys.TotalAlloc"] = memStat.TotalAlloc
-	sts["Sys.HeapAlloc"] = memStat.HeapAlloc
-	sts["Sys.Frees"] = memStat.Frees
-	sts["Sys.HeapObjects"] = memStat.HeapObjects
-	sts["Sys.NumGC"] = memStat.NumGC
-	sts["Sys.GCCPUFraction"] = memStat.GCCPUFraction
-	sts["Sys.GCSys"] = memStat.GCSys
-	//sts["Sys.MemInfo"] = memStat
-	appDir, err = filepath.Abs(".")
-	if err != nil {
-		log.Error(err)
-	}
-	diskInfo, err = disk.Usage(appDir)
-	if err != nil {
-		log.Error(err)
-	}
-	sts["Sys.DiskInfo"] = diskInfo
-	memInfo, err = mem.VirtualMemory()
-	if err != nil {
-		log.Error(err)
-	}
-	sts["Sys.MemInfo"] = memInfo
-	status.Status = "ok"
-	status.Data = sts
+		statusMap["Fs.AutoRepair"] = conf.AutoRepair()
+		// sts["Fs.QueueUpload"] = len(conf.QueueUpload)
+		statusMap["Fs.RefreshInterval"] = conf.RefreshInterval()
+		statusMap["Fs.Peers"] = conf.Peers()
+		statusMap["Fs.Local"] = conf.Addr()
+		statusMap["Fs.FileStats"] = GetStat(conf)
+		statusMap["Fs.ShowDir"] = conf.ShowDir()
+		statusMap["Sys.NumGoroutine"] = runtime.NumGoroutine()
+		statusMap["Sys.NumCpu"] = runtime.NumCPU()
+		statusMap["Sys.Alloc"] = memStat.Alloc
+		statusMap["Sys.TotalAlloc"] = memStat.TotalAlloc
+		statusMap["Sys.HeapAlloc"] = memStat.HeapAlloc
+		statusMap["Sys.Frees"] = memStat.Frees
+		statusMap["Sys.HeapObjects"] = memStat.HeapObjects
+		statusMap["Sys.NumGC"] = memStat.NumGC
+		statusMap["Sys.GCCPUFraction"] = memStat.GCCPUFraction
+		statusMap["Sys.GCSys"] = memStat.GCSys
+		//sts["Sys.MemInfo"] = memStat
+		appDir, err := filepath.Abs(".")
+		if err != nil {
+			log.Error(err)
+		}
+		diskInfo, err := disk.Usage(appDir)
+		if err != nil {
+			log.Error(err)
+		}
+		statusMap["Sys.DiskInfo"] = diskInfo
+		memInfo, err := mem.VirtualMemory()
+		if err != nil {
+			log.Error(err)
+		}
+		statusMap["Sys.MemInfo"] = memInfo
+		status.Status = "ok"
+		status.Data = statusMap
 
-	ctx.JSON(http.StatusOK, status)
+		ctx.JSON(http.StatusOK, status)
+	})
 }
 
 func HeartBeat(ctx *gin.Context) {
@@ -1260,19 +1189,14 @@ func (store hookDataStore) NewUpload(info tusd.FileInfo) (id string, err error) 
 
 //TODO: learn tus and change
 func initTus(conf *config.Config) {
-	var (
-		err     error
-		fileLog *os.File
-		bigDir  string
-	)
-
 	BIG_DIR := conf.StoreDir() + "/_big/" + conf.PeerId()
 	os.MkdirAll(BIG_DIR, 0775)
 	os.MkdirAll(conf.LogDir(), 0775)
 	store := filestore.FileStore{
 		Path: BIG_DIR,
 	}
-	if fileLog, err = os.OpenFile(conf.LogDir()+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666); err != nil {
+	fileLog, err := os.OpenFile(conf.LogDir()+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
 		log.Error(err)
 		panic("initTus")
 	}
@@ -1293,7 +1217,7 @@ func initTus(conf *config.Config) {
 		}
 	}()
 	l := slog.New(fileLog, "[tusd] ", slog.LstdFlags)
-	bigDir = conf.BigUploadPathSuffix()
+	bigDir := conf.BigUploadPathSuffix()
 
 	composer := tusd.NewStoreComposer()
 	// support raw tus upload and download
@@ -1485,9 +1409,8 @@ func initTus(conf *config.Config) {
 
 // initComponent init current host ip
 func InitComponent(isReload bool, conf *config.Config) {
-	var ip string
-
-	if ip = os.Getenv("GO_FASTDFS_IP"); ip == "" {
+	ip := os.Getenv("GO_FASTDFS_IP")
+	if ip == "" {
 		ip = pkg.GetPublicIP()
 	}
 	if conf.Addr() == "" {
@@ -1556,24 +1479,19 @@ func InitComponent(isReload bool, conf *config.Config) {
 
 // GetFilePathFromRequest
 func GetFilePathFromRequest(ctx *gin.Context, conf *config.Config) (string, string) {
-	var (
-		err       error
-		fullPath  string
-		smallPath string
-		prefix    string
-	)
-
-	r := ctx.Request
-	fullPath = r.RequestURI[1:]
+	smallPath := ""
+	requestURI := ctx.Request.RequestURI
+	fullPath := requestURI[1:]
 	fullPath = strings.Split(fullPath, "?")[0] // just path
 	fullPath = conf.StoreDirName() + "/" + fullPath
-	prefix = "/" + conf.LargeDir() + "/"
+	prefix := "/" + conf.LargeDir() + "/"
 
-	if strings.HasPrefix(r.RequestURI, prefix) {
+	if strings.HasPrefix(requestURI, prefix) {
 		smallPath = fullPath //notice order
 		fullPath = strings.Split(fullPath, ",")[0]
 	}
-	if fullPath, err = url.PathUnescape(fullPath); err != nil {
+	fullPath, err := url.PathUnescape(fullPath)
+	if err != nil {
 		log.Println(err)
 	}
 
@@ -1581,82 +1499,6 @@ func GetFilePathFromRequest(ctx *gin.Context, conf *config.Config) (string, stri
 }
 
 func SaveUploadFile(headerFileName, tempFile string, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
-	var (
-		err     error
-		outFile *os.File
-		fi      os.FileInfo
-	)
 
-	uploadFileName := filepath.Base(headerFileName)
-	fileInfo.Name = uploadFileName
-	// TODO: bug-fix for ie upload file contain full path
-	// fixed : base the full path  of the file
-	if len(conf.Extensions()) > 0 && !pkg.Contains(conf.Extensions(), path.Ext(fileInfo.Name)) {
-		return fileInfo, errors.New("(error)file extension mismatch")
-	}
-
-	if conf.RenameFile() {
-		fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
-	}
-	// if path not set,
-	uploadDir := conf.PeerId() + "/" + pkg.FormatTimeByHour(time.Now())
-	uploadDir = conf.StoreDir() + "/" + fileInfo.Scene + "/" + uploadDir
-
-	if fileInfo.Path != "" {
-		uploadDir = strings.Split(fileInfo.Path, conf.StoreDir())[0]
-		uploadDir = conf.StoreDir() + "/" + fileInfo.Path
-	}
-
-	// create the upload dir, no need to check if it exists again
-	if err := pkg.CreateDirectories(uploadDir, 0777); err != nil {
-		return nil, err
-	}
-
-	uploadFile := uploadDir + "/" + fileInfo.Name
-	if fileInfo.ReName != "" {
-		uploadFile = uploadDir + "/" + fileInfo.ReName
-	}
-
-	// if the same file already exists in the same path,
-	//TODO: rename it, or return err ?
-	if pkg.FileExists(uploadFile) && conf.EnableDistinctFile() {
-		for i := 0; i < 10000; i++ {
-			uploadFile = fmt.Sprintf(uploadDir+"/%d_%s", i, uploadFileName)
-			fileInfo.Name = fmt.Sprintf("%d_%s", i, uploadFileName)
-
-			if !pkg.FileExists(uploadFile) {
-				break
-			}
-		}
-	}
-
-	log.Info(fmt.Sprintf("upload: %s", uploadFile))
-
-	if _, err := pkg.CopyfileRemove(tempFile, uploadFile); err != nil {
-		return nil, err
-	}
-
-	if fi, err = os.Stat(uploadFile); err != nil {
-		log.Error(err)
-	} else {
-		fileInfo.Size = fi.Size()
-	}
-
-	//if fi.Size() != header.Size {
-	//return fileInfo, errors.New("(error)file uncomplete")
-	//}
-
-	v := "" // pkg.GetFileSum(outFile, config.Commonconfig.FileSumArithmetic)
-	if conf.EnableDistinctFile() {
-		v = pkg.GetFileSum(outFile, conf.FileSumArithmetic())
-	} else {
-		v = pkg.MD5(GetFilePathByInfo(fileInfo, false))
-	}
-
-	fileInfo.Md5 = v
-	//fileInfo.Path = folder //strings.Replace( folder,DOCKER_DIR,"",1)
-	fileInfo.Peers = append(fileInfo.Peers, conf.Addr())
-	//fmt.Println("upload",fileInfo)
-
-	return fileInfo, nil
+	return nil, nil
 }

@@ -9,8 +9,8 @@ import (
 )
 
 // Addr return current host addr
-func Addr(uri string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(uri, func(ctx *gin.Context) {
+func Addr(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		r := ctx.Request
 		if !model.IsPeer(r, conf) {
 			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
@@ -22,8 +22,8 @@ func Addr(uri string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // Peers return all peer
-func Peers(uri string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(uri, func(ctx *gin.Context) {
+func Peers(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		r := ctx.Request
 		if !model.IsPeer(r, conf) {
 			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
@@ -35,8 +35,8 @@ func Peers(uri string, router *gin.RouterGroup, conf *config.Config) {
 }
 
 // PeerID return current peer id
-func PeerID(uri string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(uri, func(ctx *gin.Context) {
+func PeerID(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		r := ctx.Request
 		if !model.IsPeer(r, conf) {
 			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
@@ -44,5 +44,80 @@ func PeerID(uri string, router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		ctx.JSON(http.StatusOK, conf.PeerId())
+	})
+}
+
+// PeerID return current peer id
+func StatMap(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		r := ctx.Request
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			return
+		}
+
+		conf.StatMap().Get()
+
+		ctx.JSON(http.StatusOK, conf.StatMap().Get())
+	})
+}
+
+// PeerID return current peer id
+func SumMap(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		r := ctx.Request
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			return
+		}
+
+		conf.StatMap().Get()
+
+		ctx.JSON(http.StatusOK, conf.SumMap().Get())
+	})
+}
+
+// PeerID return current peer id
+func RtMap(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		r := ctx.Request
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			return
+		}
+
+		conf.StatMap().Get()
+
+		ctx.JSON(http.StatusOK, conf.RtMap().Get())
+	})
+}
+
+// PeerID return current peer id
+func SceneMap(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		r := ctx.Request
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			return
+		}
+
+		conf.StatMap().Get()
+
+		ctx.JSON(http.StatusOK, conf.SceneMap().Get())
+	})
+}
+
+// PeerID return current peer id
+func SearchMap(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
+		r := ctx.Request
+		if !model.IsPeer(r, conf) {
+			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			return
+		}
+
+		conf.StatMap().Get()
+
+		ctx.JSON(http.StatusOK, conf.SearchMap().Get())
 	})
 }

@@ -432,8 +432,8 @@ func PostFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 	}
 }
 
-func Sync(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func Sync(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var result JsonResult
 
 		r := ctx.Request
