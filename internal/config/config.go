@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	jsonIter "github.com/json-iterator/go"
 	"github.com/luoyunpeng/go-fastdfs/pkg"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -17,10 +18,32 @@ const (
 	DefaultConfigFile2 = "./fileServer.yml"
 )
 
+var Json = jsonIter.ConfigCompatibleWithStandardLibrary
+
 type Config struct {
-	levelDB       *leveldb.DB
-	logLevelDB    *leveldb.DB
-	params        *Params
+	// info level-DB
+	levelDB *leveldb.DB
+	// log level-DB
+	logLevelDB *leveldb.DB
+	// configuration parameters
+	params *Params
+
+	// TODO: statMap stores statistics info?
+	statMap *pkg.CommonMap
+	// TODO: sumMap stores md5 info?
+	sumMap *pkg.CommonMap
+	// TODO: RtMap ?
+	rtMap *pkg.CommonMap
+	// TODO: lockMap stores the "sync.lock"
+	lockMap   *pkg.CommonMap
+	sceneMap  *pkg.CommonMap
+	searchMap *pkg.CommonMap
+
+	//queueFileLog   chan *FileLog
+	// TODO: QueueUpload receive upload work, will remove, and use upload worker
+	// QueueUpload chan WrapReqResp
+
+	curDate       string
 	absRunningDir string
 }
 
@@ -55,8 +78,26 @@ func NewConfig() *Config {
 	conf.createFileServerDirectory()
 	conf.initPeer()
 	conf.initUploadPage()
+	conf.InitInfoMap()
 
 	return conf
+}
+
+func (c *Config) InitInfoMap() {
+	c.statMap = pkg.NewCommonMap()
+	c.lockMap = pkg.NewCommonMap()
+	c.rtMap = pkg.NewCommonMap()
+	c.sceneMap = pkg.NewCommonMap()
+	c.searchMap = pkg.NewCommonMap()
+	c.sumMap = pkg.NewCommonMap()
+
+	c.statMap.Put(c.StatisticsFileCountKey(), int64(0))
+	c.statMap.Put(c.StatFileTotalSizeKey(), int64(0))
+
+	today := pkg.Today()
+	c.statMap.Put(today+"_"+c.StatisticsFileCountKey(), int64(0))
+	c.statMap.Put(today+"_"+c.StatFileTotalSizeKey(), int64(0))
+	c.curDate = today
 }
 
 func (c *Config) Shutdown() {
@@ -457,4 +498,36 @@ func (c *Config) LogLevelDB() *leveldb.DB {
 
 func (c *Config) LevelDB() *leveldb.DB {
 	return c.levelDB
+}
+
+func (c *Config) StatMap() *pkg.CommonMap {
+	return c.statMap
+}
+
+func (c *Config) LockMap() *pkg.CommonMap {
+	return c.lockMap
+}
+
+func (c *Config) SearchMap() *pkg.CommonMap {
+	return c.searchMap
+}
+
+func (c *Config) CurDate() string {
+	return c.curDate
+}
+
+func (c *Config) SetCurDate(curDate string) {
+	c.curDate = curDate
+}
+
+func (c *Config) SumMap() *pkg.CommonMap {
+	return c.sumMap
+}
+
+func (c *Config) SceneMap() *pkg.CommonMap {
+	return c.sceneMap
+}
+
+func (c *Config) RtMap() *pkg.CommonMap {
+	return c.rtMap
 }

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -13,7 +12,7 @@ import (
 )
 
 // Read: BackUpMetaDataByDate back up the file 'files.md5' and 'meta.data' in the directory name with 'date'
-func (svr *Server) BackUpMetaDataByDate(date string, conf *config.Config) {
+func BackUpMetaDataByDate(date string, conf *config.Config) {
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
@@ -37,15 +36,16 @@ func (svr *Server) BackUpMetaDataByDate(date string, conf *config.Config) {
 	)
 
 	logFileName = conf.DataDir() + "/" + date + "/" + conf.FileMd5()
-	svr.lockMap.LockKey(logFileName)
-	defer svr.lockMap.UnLockKey(logFileName)
+	conf.LockMap().LockKey(logFileName)
+	defer conf.LockMap().UnLockKey(logFileName)
+
 	metaFileName = "/" + date + "/" + "meta.data"
-	os.MkdirAll(conf.DataDir()+"/"+date, 0775)
+	_ = os.MkdirAll(conf.DataDir()+"/"+date, 0775)
 	if pkg.Exist(logFileName) {
-		os.Remove(logFileName)
+		_ = os.Remove(logFileName)
 	}
 	if pkg.Exist(metaFileName) {
-		os.Remove(metaFileName)
+		_ = os.Remove(metaFileName)
 	}
 	fileLog, err = os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0664)
 	if err != nil {
@@ -53,13 +53,17 @@ func (svr *Server) BackUpMetaDataByDate(date string, conf *config.Config) {
 		return
 	}
 
-	defer fileLog.Close()
+	defer func() {
+		_ = fileLog.Close()
+	}()
 	fileMeta, err = os.OpenFile(metaFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0664)
 	if err != nil {
 		log.Error(err)
 		return
 	}
-	defer fileMeta.Close()
+	defer func() {
+		_ = fileMeta.Close()
+	}()
 
 	keyPrefix = "%s_%s_"
 	keyPrefix = fmt.Sprintf(keyPrefix, date, conf.FileMd5())
@@ -67,7 +71,7 @@ func (svr *Server) BackUpMetaDataByDate(date string, conf *config.Config) {
 	defer iter.Release()
 
 	for iter.Next() {
-		if err = json.Unmarshal(iter.Value(), &fileInfo); err != nil {
+		if err = config.Json.Unmarshal(iter.Value(), &fileInfo); err != nil {
 			continue
 		}
 
@@ -94,14 +98,14 @@ func (svr *Server) BackUpMetaDataByDate(date string, conf *config.Config) {
 	if fi, err = fileLog.Stat(); err != nil {
 		log.Error(err)
 	} else if fi.Size() == 0 {
-		fileLog.Close()
-		os.Remove(logFileName)
+		_ = fileLog.Close()
+		_ = os.Remove(logFileName)
 	}
 
 	if fi, err = fileMeta.Stat(); err != nil {
 		log.Error(err)
 	} else if fi.Size() == 0 {
-		fileMeta.Close()
-		os.Remove(metaFileName)
+		_ = fileMeta.Close()
+		_ = os.Remove(metaFileName)
 	}
 }

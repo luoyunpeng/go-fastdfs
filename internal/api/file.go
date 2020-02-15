@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -192,7 +191,7 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		if ok, err := model.Svr.CheckDownloadAuth(ctx, conf); !ok {
+		if ok, err := model.CheckDownloadAuth(ctx, conf); !ok {
 			log.Error(err)
 			ctx.JSON(http.StatusUnauthorized, "not Permitted")
 			return
@@ -201,7 +200,7 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 		fullPath, smallPath := model.GetFilePathFromRequest(ctx, conf)
 		if smallPath == "" {
 			if fileInfo, err = os.Stat(fullPath); err != nil {
-				model.Svr.DownloadNotFound(ctx, conf)
+				model.DownloadNotFound(ctx, conf)
 				return
 			}
 
@@ -215,7 +214,7 @@ func Download(uri string, router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		if ok, _ := model.DownloadSmallFileByURI(ctx, conf); !ok {
-			model.Svr.DownloadNotFound(ctx, conf)
+			model.DownloadNotFound(ctx, conf)
 		}
 	})
 }
@@ -330,7 +329,6 @@ func CheckFilesExist(path string, router *gin.RouterGroup, conf *config.Config) 
 }
 
 // Upload
-//
 func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.POST(relativePath, func(ctx *gin.Context) {
 		if conf.ReadOnly() {
@@ -351,7 +349,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		if scene == "" {
 			scene = conf.DefaultScene()
 		}
-		if _, err := model.CheckScene(scene, conf); err != nil {
+		if _, err := pkg.CheckScene(scene, conf.Scenes()); err != nil {
 			ctx.JSON(http.StatusBadRequest, err.Error())
 			return
 		}
@@ -359,7 +357,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		code := ctx.PostForm("code")
 		//Read: default not enable google auth
 		if conf.EnableGoogleAuth() && scene != "" {
-			if secret, ok := model.Svr.SceneMap.GetValue(scene); ok {
+			if secret, ok := conf.SceneMap().GetValue(scene); ok {
 				if !model.VerifyGoogleCode(secret.(string), code, int64(conf.DownloadTokenExpire()/30)) {
 					ctx.JSON(http.StatusUnauthorized, "invalid request,error google code")
 					return
@@ -373,7 +371,6 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		fileInfo.Md5 = md5sum
 		fileInfo.ReName = customFileName
 		fileInfo.OffSet = -1
-		fileInfo.Peers = []string{}
 		fileInfo.TimeStamp = time.Now().Unix()
 		fileInfo.Scene = scene
 
@@ -399,7 +396,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		if conf.RenameFile() && fileInfo.ReName == "" {
 			fileInfo.ReName = pkg.MD5(pkg.GetUUID()) + path.Ext(fileInfo.Name)
 		}
-		// if path not set, create dir by current date
+		// if file path not given, create the upload dir by current date
 		uploadDir := path.Join(conf.StoreDir(), fileInfo.Scene, conf.PeerId(), pkg.FormatTimeByHour(time.Now()))
 		if fileInfo.Path != "" {
 			uploadDir = strings.Split(fileInfo.Path, conf.StoreDir())[0]
@@ -418,7 +415,7 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			uploadFile = uploadDir + "/" + fileInfo.ReName
 		}
 
-		tmpFolder := path.Join(conf.StoreDir(), "tmp", pkg.Today())
+		tmpFolder := path.Join(conf.StoreDir(), "_tmp", pkg.Today())
 		if err := pkg.CreateDirectories(tmpFolder, 0777); err != nil {
 			ctx.JSON(http.StatusInternalServerError, err.Error())
 			return
@@ -449,41 +446,36 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		if conf.EnableDistinctFile() {
 			fileInfo.Md5 = pkg.GetFileSum(tmpFile, conf.FileSumArithmetic())
 		} else {
+			// TODO: bug fix file-count stat
 			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
 		}
 
 		// o size file, or something else
 		if fileInfo.Md5 == "" {
-			log.Warn(" fileInfo.Md5 is null")
-			ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 is null, please check your file")
+			log.Warn("the upload file Md5 is nil")
+			ctx.JSON(http.StatusBadRequest, "the upload file Md5 is nil, please check your file")
 			return
 		}
 
+		// the given sum(md5 or sha1) is not same as the real
 		if md5sum != "" && fileInfo.Md5 != md5sum {
 			log.Warn(" fileInfo.Md5 and md5sum !=")
-			ctx.JSON(http.StatusBadRequest, "fileInfo.Md5 and md5sum !=")
-			return
 		}
 
-		//fileInfo.Path = folder //strings.Replace( folder,DOCKER_DIR,"",1)
 		fileInfo.Peers = append(fileInfo.Peers, conf.Addr())
 
 		if conf.EnableDistinctFile() {
-			if v, _ := model.GetFileInfoFromLevelDB(fileInfo.Md5, conf); v != nil && v.Md5 != "" && v.Path == fileInfo.Path {
-				fileResult := model.BuildFileResult(v, ctx.Request.Host, conf)
+			queryFileInfo, _ := model.GetFileInfoFromLevelDB(fileInfo.Md5, conf)
+			if queryFileInfo != nil && queryFileInfo.Md5 != "" && queryFileInfo.Path == fileInfo.Path {
+				fileResult := model.BuildFileResult(queryFileInfo, ctx.Request.Host, conf)
 				_ = os.Remove(tmpFileName)
-				// TODO: consider if custom path is not same,
 				ctx.JSON(http.StatusOK, fileResult.Url)
 				return
 			}
 		}
 
-		if !conf.EnableDistinctFile() {
-			// TODO: bug fix file-count stat
-			fileInfo.Md5 = pkg.MD5(model.GetFilePathByInfo(&fileInfo, false))
-		}
 		if conf.EnableMergeSmallFile() && fileInfo.Size < int64(conf.SmallFileSize()) {
-			if err := model.Svr.SaveSmallFile(&fileInfo, conf); err != nil {
+			if err := model.SaveSmallFile(&fileInfo, conf); err != nil {
 				log.Error(err)
 				ctx.JSON(http.StatusNotFound, err.Error())
 				return
@@ -496,16 +488,16 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		model.Svr.SaveFileMd5Log(&fileInfo, conf.FileMd5(), conf) //maybe slow
-		go model.Svr.PostFileToPeer(&fileInfo, conf)
+		model.SaveFileMd5Log(&fileInfo, conf.FileMd5(), conf) //maybe slow
+		go model.PostFileToPeer(&fileInfo, conf)
 
 		// TODO: use upload worker
-		// model.Svr.InternalUpload(ctx, conf, fileInfo)
-		model.Svr.RtMap.AddCountInt64(conf.UploadCounterKey(), ctx.Request.ContentLength)
-		if v, ok := model.Svr.RtMap.GetValue(conf.UploadCounterKey()); ok {
+		// model.InternalUpload(ctx, conf, fileInfo)
+		conf.RtMap().AddCountInt64(conf.UploadCounterKey(), ctx.Request.ContentLength)
+		if v, ok := conf.RtMap().GetValue(conf.UploadCounterKey()); ok {
 			if v.(int64) > 1*1024*1024*1024 {
 				var _v int64
-				model.Svr.RtMap.Put(conf.UploadCounterKey(), _v)
+				conf.RtMap().Put(conf.UploadCounterKey(), _v)
 				debug.FreeOSMemory()
 			}
 		}
@@ -595,7 +587,7 @@ func RemoveFile(path string, router *gin.RouterGroup, conf *config.Config) {
 		}
 		fPath = conf.StoreDir() + "/" + fileInfo.Path + "/" + name
 		if fileInfo.Path != "" && pkg.FileExists(fPath) {
-			model.Svr.SaveFileMd5Log(fileInfo, conf.RemoveMd5File(), conf)
+			model.SaveFileMd5Log(fileInfo, conf.RemoveMd5File(), conf)
 			if err = os.Remove(fPath); err != nil {
 				result.Message = err.Error()
 
@@ -632,7 +624,7 @@ func RepairFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
 		result.Status = "ok"
 		result.Message = "repair job start,don't try again,very danger "
 
-		go model.Svr.RepairFileInfoFromFile(conf)
+		go model.RepairFileInfoFromFile(conf)
 
 		ctx.JSON(http.StatusNotFound, result)
 	})
@@ -674,7 +666,7 @@ func Reload(path string, router *gin.RouterGroup, conf *config.Config) {
 				return
 			}
 
-			if err = json.Unmarshal([]byte(cfgJson), &cfg); err != nil {
+			if err = config.Json.Unmarshal([]byte(cfgJson), &cfg); err != nil {
 				log.Error(err)
 				result.Message = err.Error()
 				ctx.JSON(http.StatusNotFound, result)
@@ -696,14 +688,14 @@ func Reload(path string, router *gin.RouterGroup, conf *config.Config) {
 				return
 			}
 
-			if err = json.Unmarshal(data, &cfg); err != nil {
+			if err = config.Json.Unmarshal(data, &cfg); err != nil {
 				result.Message = err.Error()
 				ctx.JSON(http.StatusNotFound, result)
 				return
 			}
 
 			//config.ParseConfig(config.DefaultConfigFile)
-			model.Svr.InitComponent(true, conf)
+			model.InitComponent(true, conf)
 			result.Status = "ok"
 
 			ctx.JSON(http.StatusOK, result)
@@ -750,7 +742,7 @@ func BackUp(path string, router *gin.RouterGroup, conf *config.Config) {
 				}
 			}
 
-			go model.Svr.BackUpMetaDataByDate(date, conf)
+			go model.BackUpMetaDataByDate(date, conf)
 
 			result.Message = "back job start..."
 			ctx.JSON(http.StatusOK, result)
@@ -786,7 +778,7 @@ func Search(path string, router *gin.RouterGroup, conf *config.Config) {
 		for iter.Next() {
 			var fileInfo model.FileInfo
 			value := iter.Value()
-			if err = json.Unmarshal(value, &fileInfo); err != nil {
+			if err = config.Json.Unmarshal(value, &fileInfo); err != nil {
 				log.Error(err)
 				continue
 			}
@@ -829,7 +821,7 @@ func Repair(path string, router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		if model.IsPeer(r, conf) {
-			go model.Svr.AutoRepair(forceRepair, conf)
+			go model.AutoRepair(forceRepair, conf)
 
 			result.Message = "repair job start..."
 			ctx.JSON(http.StatusOK, result)

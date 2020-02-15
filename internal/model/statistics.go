@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"strconv"
@@ -19,7 +18,7 @@ type StatDateFileInfo struct {
 	FileCount int64  `json:"fileCount"`
 }
 
-func (svr *Server) RepairStatByDate(date string, conf *config.Config) StatDateFileInfo {
+func RepairStatByDate(date string, conf *config.Config) StatDateFileInfo {
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
@@ -44,15 +43,15 @@ func (svr *Server) RepairStatByDate(date string, conf *config.Config) StatDateFi
 	defer iter.Release()
 
 	for iter.Next() {
-		if err = json.Unmarshal(iter.Value(), &fileInfo); err != nil {
+		if err = config.Json.Unmarshal(iter.Value(), &fileInfo); err != nil {
 			continue
 		}
 		fileCount = fileCount + 1
 		fileSize = fileSize + fileInfo.Size
 	}
-	svr.statMap.Put(date+"_"+conf.StatisticsFileCountKey(), fileCount)
-	svr.statMap.Put(date+"_"+conf.StatFileTotalSizeKey(), fileSize)
-	svr.SaveStat(conf)
+	conf.StatMap().Put(date+"_"+conf.StatisticsFileCountKey(), fileCount)
+	conf.StatMap().Put(date+"_"+conf.StatFileTotalSizeKey(), fileSize)
+	SaveStat(conf)
 	stat.Date = date
 	stat.FileCount = fileCount
 	stat.TotalSize = fileSize
@@ -62,16 +61,14 @@ func (svr *Server) RepairStatByDate(date string, conf *config.Config) StatDateFi
 
 // Read: SaveStat read data from statMap(which is concurrent safe map), check if the
 // "StatisticsFileCountKey" key exists, if exists, then load all statMap data to file "stat.json"
-func (svr *Server) SaveStat(conf *config.Config) {
-	stat := svr.statMap.Get()
+func SaveStat(conf *config.Config) {
+	stat := conf.StatMap().Get()
 	if v, ok := stat[conf.StatisticsFileCountKey()]; ok {
 		switch v.(type) {
 		case int64, int32, int, float64, float32:
 			if v.(int64) >= 0 {
-				var data []byte
-				var err error
-
-				if data, err = json.Marshal(stat); err != nil {
+				data, err := config.Json.Marshal(stat)
+				if err != nil {
 					log.Error(err)
 				}
 
@@ -81,7 +78,7 @@ func (svr *Server) SaveStat(conf *config.Config) {
 	}
 }
 
-func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {
+func GetStat(conf *config.Config) []StatDateFileInfo {
 	var (
 		min   int64
 		max   int64
@@ -93,7 +90,7 @@ func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {
 
 	min = 20190101
 	max = 20190101
-	for k := range svr.statMap.Get() {
+	for k := range conf.StatMap().Get() {
 		ks := strings.Split(k, "_")
 		if len(ks) == 2 {
 			if i, err = strconv.ParseInt(ks[0], 10, 64); err != nil {
@@ -111,7 +108,7 @@ func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {
 
 	for i := min; i <= max; i++ {
 		s := fmt.Sprintf("%d", i)
-		if v, ok := svr.statMap.GetValue(s + "_" + conf.StatFileTotalSizeKey()); ok {
+		if v, ok := conf.StatMap().GetValue(s + "_" + conf.StatFileTotalSizeKey()); ok {
 			var info StatDateFileInfo
 			info.Date = s
 
@@ -121,7 +118,7 @@ func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {
 				total.TotalSize = total.TotalSize + v.(int64)
 			}
 
-			if v, ok := svr.statMap.GetValue(s + "_" + conf.StatisticsFileCountKey()); ok {
+			if v, ok := conf.StatMap().GetValue(s + "_" + conf.StatisticsFileCountKey()); ok {
 				switch v.(type) {
 				case int64:
 					info.FileCount = v.(int64)
@@ -139,7 +136,7 @@ func (svr *Server) GetStat(conf *config.Config) []StatDateFileInfo {
 	return rows
 }
 
-func (svr *Server) FormatStatInfo(conf *config.Config) {
+func FormatStatInfo(conf *config.Config) {
 	var (
 		data  []byte
 		err   error
@@ -151,7 +148,7 @@ func (svr *Server) FormatStatInfo(conf *config.Config) {
 		if data, err = pkg.ReadFile(conf.StatisticsFile()); err != nil {
 			log.Error(err)
 		} else {
-			if err = json.Unmarshal(data, &stat); err != nil {
+			if err = config.Json.Unmarshal(data, &stat); err != nil {
 				log.Error(err)
 			} else {
 				for k, v := range stat {
@@ -161,15 +158,15 @@ func (svr *Server) FormatStatInfo(conf *config.Config) {
 						if count, err = strconv.ParseInt(vv, 10, 64); err != nil {
 							log.Error(err)
 						} else {
-							svr.statMap.Put(k, count)
+							conf.StatMap().Put(k, count)
 						}
 					default:
-						svr.statMap.Put(k, v)
+						conf.StatMap().Put(k, v)
 					}
 				}
 			}
 		}
 	}
 
-	svr.RepairStatByDate(pkg.Today(), conf)
+	RepairStatByDate(pkg.Today(), conf)
 }

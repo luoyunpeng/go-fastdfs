@@ -18,7 +18,16 @@ func main() {
 	paht := "files/hub"
 	dir = strings.Split(dir, paht)[0]
 	fmt.Println(dir)
-	fmt.Println(path.Join("/opt/demo/file", "/opt/demo"))
+	fmt.Println(path.Join("http://demo/opt/demo/file", "/opt/demo"))
+
+	peer := "123"
+	var peers []string
+
+	for _, v := range peers {
+		if v == peer {
+
+		}
+	}
 }
 
 func app() {

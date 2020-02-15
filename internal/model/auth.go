@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -42,7 +41,7 @@ func CheckAuth(r *http.Request, conf *config.Config) bool {
 	result, err = req.String()
 	result = strings.TrimSpace(result)
 	if strings.HasPrefix(result, "{") && strings.HasSuffix(result, "}") {
-		if err = json.Unmarshal([]byte(result), &jsonResult); err != nil {
+		if err = config.Json.Unmarshal([]byte(result), &jsonResult); err != nil {
 			log.Error(err)
 			return false
 		}
@@ -75,7 +74,7 @@ func VerifyGoogleCode(secret string, code string, discrepancy int64) bool {
 	}
 }
 
-func (svr *Server) CheckDownloadAuth(ctx *gin.Context, conf *config.Config) (bool, error) {
+func CheckDownloadAuth(ctx *gin.Context, conf *config.Config) (bool, error) {
 	var (
 		err          error
 		maxTimestamp int64
@@ -136,7 +135,7 @@ func (svr *Server) CheckDownloadAuth(ctx *gin.Context, conf *config.Config) (boo
 		fullPath = strings.Split(fullPath, "?")[0] // just path
 		scene = strings.Split(fullPath, "/")[0]
 		code = r.FormValue("code")
-		if secret, ok = svr.SceneMap.GetValue(scene); ok {
+		if secret, ok = conf.SceneMap().GetValue(scene); ok {
 			if !VerifyGoogleCode(secret.(string), code, int64(conf.DownloadTokenExpire()/30)) {
 				return false, errors.New("invalid google code")
 			}
