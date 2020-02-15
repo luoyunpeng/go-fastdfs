@@ -320,7 +320,7 @@ func UrlDecodeToMap(body string) (map[string]string, error) {
 }
 
 func GetDayFromTimeStamp(timeStamp int64) string {
-	return time.Unix(timeStamp, 0).Format("20060102")
+	return FormatTimeByDay(time.Unix(timeStamp, 0))
 }
 
 func StrToMapSet(str string, sep string) mapSet.Set {

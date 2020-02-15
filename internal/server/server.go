@@ -38,7 +38,7 @@ func Start(conf *config.Config) {
 	signalListen(srv, conf)
 }
 
-func cors(c *gin.Context) {
+func Cors(c *gin.Context) {
 	whiteList := map[string]int{
 		// TODO
 	}

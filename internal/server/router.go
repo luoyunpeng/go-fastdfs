@@ -31,9 +31,9 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		// curl http://ip:9090/test/check_file_exist?path=files/v1.0.0/bbs.log.txt
 		api.CheckFilesExist("/check_files_exist", v1, conf)
 		api.CheckFileExist("/check_file_exist", v1, conf)
-		model.Svr.GetFileInfo("/info", v1, conf)
-		model.Svr.Sync("/sync", v1, conf)
-		model.Svr.Stat("/stat", v1, conf)
+		model.GetFileInfo("/info", v1, conf)
+		model.Sync("/sync", v1, conf)
+		model.Stat("/stat", v1, conf)
 		api.Report("/report", v1, conf)
 		api.Search("/search", v1, conf)
 		api.ListDir("/list-dir", v1, conf)
@@ -44,7 +44,7 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		api.PeerID("/peerID", v1, conf)
 
 		api.GetMd5sForWeb("/get_md5s_by_date", v1, conf)
-		model.Svr.ReceiveMd5s("/receive_md5s", v1, conf) // ?
+		model.ReceiveMd5s("/receive_md5s", v1, conf) // ?
 
 		//POST
 		api.Upload("/file", v1, conf)
@@ -55,7 +55,7 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 
 		api.Reload("/reload", v1, conf)
 		api.RepairFileInfo("/repair_fileinfo", v1, conf)
-		model.Svr.SyncFileInfo("/syncfile_info", v1, conf)
+		model.SyncFileInfo("/syncfile_info", v1, conf)
 
 		api.RemoveFile("/file", v1, conf)
 		api.RemoveEmptyDir("/remove_empty_dir", v1, conf)

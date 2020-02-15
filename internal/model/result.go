@@ -45,7 +45,7 @@ func BuildFileResult(fileInfo *FileInfo, reqHost string, conf *config.Config) Fi
 	}
 	domain := conf.DownloadDomain()
 	if domain == "" {
-		domain = fmt.Sprintf("http://%s", host)
+		domain = conf.Addr()
 	}
 
 	fileName := fileInfo.Name
@@ -53,7 +53,7 @@ func BuildFileResult(fileInfo *FileInfo, reqHost string, conf *config.Config) Fi
 		fileName = fileInfo.ReName
 	}
 	path := strings.Replace(fileInfo.Path, conf.StoreDir()+"/", "", 1)
-	//eg: /file/svg/1.svg,
+	//eg: /hub/svg/1.svg,
 	downloadURLTail := conf.FileDownloadPathPrefix() + "/" + path + "/" + fileName
 
 	downloadUrl := fmt.Sprintf("http://%s%s", host, downloadURLTail)

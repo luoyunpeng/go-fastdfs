@@ -8,6 +8,7 @@ import (
 )
 
 func SendMail(to, subject, body, mailType string, conf *config.Config) error {
+	_ = subject
 	host := conf.MailHost()
 	user := conf.MailUser()
 	password := conf.MailPassword()
