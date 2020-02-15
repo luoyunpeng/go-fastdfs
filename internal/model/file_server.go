@@ -23,7 +23,6 @@ import (
 
 	"github.com/astaxie/beego/httplib"
 	mapSet "github.com/deckarep/golang-set"
-	"github.com/docker/go-units"
 	"github.com/gin-gonic/gin"
 	"github.com/luoyunpeng/go-fastdfs/internal/config"
 	"github.com/luoyunpeng/go-fastdfs/pkg"
@@ -416,7 +415,7 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 
 	case conf.RemoveMd5File():
 		fileCount = -1
-		fileSize = - fileInfo.Size
+		fileSize = -fileInfo.Size
 		_ = RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
 		md5Path := pkg.MD5(fileFullPath)
 		if err := RemoveKeyFromLevelDB(fileInfo.Md5, conf.LevelDB()); err != nil {
@@ -432,19 +431,16 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 	}
 
 	if md5FileName == conf.FileMd5() || md5FileName == conf.RemoveMd5File() {
-		//searchMap.Put(fileInfo.Md5, fileInfo.Name)
-		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); !ok {
-			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), fileCount)
-			conf.StatMap().AddCountInt64(conf.StatisticsFileCountKey(), fileCount)
+		conf.StatMap().AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), fileCount)
+		conf.StatMap().AddCountInt64(conf.StatisticsFileCountKey(), fileCount)
 
-			totalSize := conf.StatMap().AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), fileSize)
-			conf.StatMap().AddCountInt64(conf.StatFileTotalSizeKey(), fileSize)
+		totalSize := conf.StatMap().AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), fileSize)
+		conf.StatMap().AddCountInt64(conf.StatFileTotalSizeKey(), fileSize)
 
-			readableSize := units.HumanSize(float64(totalSize))
-			conf.StatMap().Put(logDate+"_h"+conf.StatFileTotalSizeKey(), readableSize)
-			conf.StatMap().Put("_h"+conf.StatFileTotalSizeKey(), readableSize)
-			SaveStat(conf)
-		}
+		readableSize := pkg.HumanSize(float64(totalSize))
+		conf.StatMap().Put(logDate+"_Read_"+conf.StatFileTotalSizeKey(), readableSize)
+		conf.StatMap().Put("Read_"+conf.StatFileTotalSizeKey(), readableSize)
+		SaveStat(conf)
 
 		return
 	}
