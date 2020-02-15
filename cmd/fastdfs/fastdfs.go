@@ -60,6 +60,7 @@ func main() {
 
 	if conf.AutoRepair() {
 		go func() {
+
 			for {
 				time.Sleep(time.Minute * 3)
 				model.AutoRepair(false, conf)

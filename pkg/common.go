@@ -141,15 +141,16 @@ func (cMap *CommonMap) AddCount(key string, count int) {
 	cMap.m.Store(key, 1)
 }
 
-func (cMap *CommonMap) AddCountInt64(key string, count int64) {
+func (cMap *CommonMap) AddCountInt64(key string, count int64) int64 {
 	if v, ok := cMap.m.Load(key); ok {
 		tmp := v.(int64)
 		tmp = tmp + count
 		cMap.m.Store(key, tmp)
-		return
+		return tmp
 	}
 
 	cMap.m.Store(key, count)
+	return count
 }
 
 func (cMap *CommonMap) Add(key string) {
@@ -178,12 +179,12 @@ func (cMap *CommonMap) Zero() {
 
 func (cMap *CommonMap) Contains(i ...interface{}) bool {
 	for _, val := range i {
-		if _, ok := cMap.m.Load(val.(string)); !ok {
-			return false
+		if _, ok := cMap.m.Load(val.(string)); ok {
+			return true
 		}
 	}
 
-	return true
+	return false
 }
 
 func (cMap *CommonMap) Get() map[string]interface{} {
