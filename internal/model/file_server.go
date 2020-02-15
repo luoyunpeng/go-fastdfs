@@ -23,6 +23,7 @@ import (
 
 	"github.com/astaxie/beego/httplib"
 	mapSet "github.com/deckarep/golang-set"
+	"github.com/docker/go-units"
 	"github.com/gin-gonic/gin"
 	"github.com/luoyunpeng/go-fastdfs/internal/config"
 	"github.com/luoyunpeng/go-fastdfs/pkg"
@@ -394,39 +395,30 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 		fileName = fileInfo.ReName
 	}
 
-	filePath := fileInfo.Path + "/" + fileName
-	_ = conf.StoreDir() + "/" + filePath
+	fileFullPath := path.Join(conf.StoreDir(), fileInfo.Path, fileName)
 	logKey := fmt.Sprintf("%s_%s_%s", logDate, md5FileName, fileInfo.Md5)
-	if md5FileName == conf.FileMd5() {
-		//searchMap.Put(fileInfo.Md5, fileInfo.Name)
-		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); !ok {
-			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), 1)
-			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), fileInfo.Size)
-			SaveStat(conf)
-		}
+	fileCount := int64(0)
+	fileSize := int64(0)
+
+	switch md5FileName {
+	case conf.FileMd5():
+		fileCount = 1
+		fileSize = fileInfo.Size
 		if _, err := SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf); err != nil {
 			log.Error(err)
 		}
 		if _, err := SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
-		if _, err := SaveFileInfoToLevelDB(pkg.MD5(filePath), fileInfo, conf.LevelDB(), conf); err != nil {
+		if _, err := SaveFileInfoToLevelDB(pkg.MD5(fileFullPath), fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
 
-		return
-	}
-
-	if md5FileName == conf.RemoveMd5File() {
-		//searchMap.Remove(fileInfo.Md5)
-		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); ok {
-			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), -1)
-			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), -fileInfo.Size)
-			SaveStat(conf)
-		}
-
+	case conf.RemoveMd5File():
+		fileCount = -1
+		fileSize = - fileInfo.Size
 		_ = RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
-		md5Path := pkg.MD5(filePath)
+		md5Path := pkg.MD5(fileFullPath)
 		if err := RemoveKeyFromLevelDB(fileInfo.Md5, conf.LevelDB()); err != nil {
 			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
 		}
@@ -437,6 +429,22 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 		// remove files.md5 for stat info(repair from LogLevelDb)
 		logKey = fmt.Sprintf("%s_%s_%s", logDate, conf.FileMd5(), fileInfo.Md5)
 		_ = RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
+	}
+
+	if md5FileName == conf.FileMd5() || md5FileName == conf.RemoveMd5File() {
+		//searchMap.Put(fileInfo.Md5, fileInfo.Name)
+		if ok, _ := ExistFromLevelDB(fileInfo.Md5, conf.LevelDB()); !ok {
+			conf.StatMap().AddCountInt64(logDate+"_"+conf.StatisticsFileCountKey(), fileCount)
+			conf.StatMap().AddCountInt64(conf.StatisticsFileCountKey(), fileCount)
+
+			totalSize := conf.StatMap().AddCountInt64(logDate+"_"+conf.StatFileTotalSizeKey(), fileSize)
+			conf.StatMap().AddCountInt64(conf.StatFileTotalSizeKey(), fileSize)
+
+			readableSize := units.HumanSize(float64(totalSize))
+			conf.StatMap().Put(logDate+"_h"+conf.StatFileTotalSizeKey(), readableSize)
+			conf.StatMap().Put("_h"+conf.StatFileTotalSizeKey(), readableSize)
+			SaveStat(conf)
+		}
 
 		return
 	}

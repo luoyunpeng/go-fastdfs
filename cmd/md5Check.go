@@ -2,24 +2,18 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"sync"
 
-	"github.com/luoyunpeng/go-fastdfs/pkg"
+	units "github.com/docker/go-units"
 )
 
 func main() {
-	f1, err := os.Open("")
-	if err != nil {
-		panic(err)
-	}
-	defer f1.Close()
+	fmt.Println(units.HumanSize(187350))
 
-	f2, err := os.Open("")
-	if err != nil {
-		panic(err)
-	}
-	defer f1.Close()
+	m := sync.Map{}
 
-	fmt.Println(pkg.GetFileMd5(f1))
-	fmt.Println(pkg.GetFileMd5(f2))
+	m.Store("zhansan", 25)
+	m.Store("lisi", "hello")
+
+	fmt.Println(m.Load("zhansan"))
 }
