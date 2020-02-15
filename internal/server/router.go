@@ -34,6 +34,7 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		model.GetFileInfo("/info", v1, conf)
 		model.Sync("/sync", v1, conf)
 		model.Stat("/stat", v1, conf)
+		model.Status("/status", v1, conf)
 		api.Report("/report", v1, conf)
 		api.Search("/search", v1, conf)
 		api.ListDir("/list-dir", v1, conf)
@@ -42,6 +43,11 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		api.Addr("/addr", v1, conf)
 		api.Peers("/peers", v1, conf)
 		api.PeerID("/peerID", v1, conf)
+		api.SumMap("/sumMap", v1, conf)
+		api.StatMap("/statMap", v1, conf)
+		api.SceneMap("/sceneMap", v1, conf)
+		api.RtMap("/rtMap", v1, conf)
+		api.SearchMap("/searchMap", v1, conf)
 
 		api.GetMd5sForWeb("/get_md5s_by_date", v1, conf)
 		model.ReceiveMd5s("/receive_md5s", v1, conf) // ?
@@ -49,6 +55,7 @@ func registerRoutes(app *gin.Engine, conf *config.Config) {
 		//POST
 		api.Upload("/file", v1, conf)
 		api.Repair("/repair", v1, conf)
+		model.RepairStatWeb("/repair_stat", v1, conf)
 		api.BackUp("/backup", v1, conf)
 		api.GenGoogleSecret("/gen_google_secret", v1, conf)
 		api.GenGoogleCode("/gen_google_code", v1, conf)

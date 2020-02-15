@@ -206,8 +206,8 @@ func SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB, conf 
 	return fileInfo, nil
 }
 
-func SyncFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.PUT(path, func(ctx *gin.Context) {
+func SyncFileInfo(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.PUT(relativePath, func(ctx *gin.Context) {
 		fileInfo := FileInfo{}
 
 		r := ctx.Request
@@ -243,8 +243,8 @@ func SyncFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-func GetFileInfo(path string, router *gin.RouterGroup, conf *config.Config) {
-	router.GET(path, func(ctx *gin.Context) {
+func GetFileInfo(relativePath string, router *gin.RouterGroup, conf *config.Config) {
+	router.GET(relativePath, func(ctx *gin.Context) {
 		var result JsonResult
 
 		r := ctx.Request
