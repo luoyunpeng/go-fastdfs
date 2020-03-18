@@ -8,6 +8,7 @@ BINARY_NAME=go-fastdfs
 BINARY_UNIX=$(BINARY_NAME)_unix
 
 all: test build
+	rm -f $(BINARY_NAME)
 build:
 	$(GOBUILD) -v -tags=jsoniter -o $(BINARY_NAME) ./cmd/fastdfs/fastdfs.go
 test:
