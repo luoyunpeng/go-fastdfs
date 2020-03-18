@@ -26,9 +26,9 @@ type Config struct {
 	// log level-DB
 	logLevelDB *leveldb.DB
 	// configuration parameters
-	params *Params
+	params *params
 
-	// TODO: statMap stores statistics info?
+	// statMap stores file count and file size info of every and total
 	statMap *pkg.CommonMap
 	// TODO: sumMap stores md5 info?
 	sumMap *pkg.CommonMap
@@ -103,13 +103,11 @@ func (c *Config) InitInfoMap() {
 func (c *Config) Shutdown() {
 	log.Info("Closing levelDB")
 
-	err := c.LevelDB().Close()
-	if err != nil {
+	if err := c.LevelDB().Close(); err != nil {
 		log.Info("close levelDB error: ", err)
 	}
 
-	err = c.LogLevelDB().Close()
-	if err != nil {
+	if err := c.LogLevelDB().Close(); err != nil {
 		log.Info("close LogLevelDB error: ", err)
 	}
 }
@@ -152,7 +150,7 @@ func (c *Config) initPeer() {
 
 func (c *Config) initUploadPage() {
 	uploadPageName := c.params.StaticDir + "/upload.tmpl"
-	DefaultUploadPage = fmt.Sprintf(DefaultUploadPage, "/upload", "", "")
+	DefaultUploadPage = fmt.Sprintf(DefaultUploadPage, "/file", "", "")
 
 	if !pkg.Exist(uploadPageName) {
 		pkg.WriteFile(uploadPageName, DefaultUploadPage)

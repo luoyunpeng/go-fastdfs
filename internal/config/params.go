@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Params struct {
+type params struct {
 	Port                 string   `yaml:"port"`
 	Peers                []string `yaml:"peers"`
 	RenameFile           bool     `yaml:"rename_file"`
@@ -96,8 +96,8 @@ type Params struct {
 	IsInsideContainer      bool
 }
 
-func NewParams() *Params {
-	p := &Params{}
+func NewParams() *params {
+	p := &params{}
 
 	if err := p.SetValuesFromFile(DefaultConfigFile); err != nil {
 		log.Debug(err)
@@ -118,7 +118,7 @@ func NewParams() *Params {
 }
 
 // SetValuesFromFile uses a yaml config file to initiate the configuration entity.
-func (p *Params) SetValuesFromFile(fileName string) error {
+func (p *params) SetValuesFromFile(fileName string) error {
 	if !pkg.FileExists(fileName) {
 		return errors.New(fmt.Sprintf("config file not found: \"%s\"", fileName))
 	}
@@ -131,7 +131,7 @@ func (p *Params) SetValuesFromFile(fileName string) error {
 	return yaml.Unmarshal(yamlConfig, p)
 }
 
-func (p *Params) expandFilenames() {
+func (p *params) expandFilenames() {
 	p.OriginPath = pkg.ExpandFilename(p.OriginPath)
 
 	p.DataDir = p.OriginPath + p.DataDir

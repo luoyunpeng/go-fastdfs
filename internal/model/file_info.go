@@ -116,7 +116,7 @@ func RepairFileInfoFromFile(conf *config.Config) {
 				log.Info(filePath, "/", fi.Name())
 				queueToPeers <- fileInfo
 				//conf.postFileToPeer(&fileInfo)
-				_, _ = SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, conf.LevelDB(), conf)
+				_ = SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, conf.LevelDB(), conf)
 				//conf.SaveFileMd5Log(&fileInfo, FileMd5Name)
 			}
 		}
@@ -183,18 +183,18 @@ func CheckFileExistByInfo(md5s string, fileInfo *FileInfo, conf *config.Config) 
 	return false
 }
 
-func SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB, conf *config.Config) (*FileInfo, error) {
+func SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB, conf *config.Config) error {
 	if fileInfo == nil || db == nil {
-		return nil, errors.New("fileInfo is null or db is null")
+		return errors.New("fileInfo is null or db is null")
 	}
 
 	data, err := config.Json.Marshal(fileInfo)
 	if err != nil {
-		return fileInfo, err
+		return err
 	}
 
 	if err = db.Put([]byte(key), data, nil); err != nil {
-		return fileInfo, err
+		return err
 	}
 
 	if db == conf.LevelDB() { //search slow ,write fast, double write logDB
@@ -203,7 +203,7 @@ func SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB, conf 
 		_ = db.Put([]byte(logKey), data, nil)
 	}
 
-	return fileInfo, nil
+	return nil
 }
 
 func SyncFileInfo(relativePath string, router *gin.RouterGroup, conf *config.Config) {
@@ -216,16 +216,17 @@ func SyncFileInfo(relativePath string, router *gin.RouterGroup, conf *config.Con
 			return
 		}
 
-		fileInfoStr := r.FormValue("fileInfo")
+		fileInfoStr := ctx.PostForm("fileInfo")
 		if err := config.Json.Unmarshal([]byte(fileInfoStr), &fileInfo); err != nil {
-			ctx.JSON(http.StatusNotFound, GetClusterNotPermitMessage(r))
+			ctx.JSON(http.StatusBadRequest, GetClusterNotPermitMessage(r))
 			log.Error(err)
 			return
 		}
 
+		// TODO: what the different?
 		if fileInfo.OffSet == -2 {
 			// optimize migrate
-			_, _ = SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, conf.LevelDB(), conf)
+			_ = SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, conf.LevelDB(), conf)
 		} else {
 			SaveFileMd5Log(&fileInfo, conf.Md5QueueFile(), conf)
 		}

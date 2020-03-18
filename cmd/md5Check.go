@@ -2,20 +2,29 @@ package main
 
 import (
 	"fmt"
-	"sync"
-
-	"github.com/docker/go-units"
-	"github.com/luoyunpeng/go-fastdfs/pkg"
+	"io/ioutil"
+	"strconv"
 )
 
+const (
+	one = iota
+	two
+	three
+)
+
+type Demo struct {
+	name string
+	age  byte
+}
+
 func main() {
+	age := []int{1, 5, 2, 8, 4, 6}
 
-	fmt.Println(units.BytesSize(82854982))
-	fmt.Println(pkg.HumanSize(82854982))
-	m := sync.Map{}
+	res := make([]int, 3)
+	copy(res, age[3:6])
 
-	m.Store("zhansan", 25)
-	m.Store("lisi", "hello")
+	fmt.Println(one, two)
 
-	fmt.Println(m.Load("zhansan"))
+	fmt.Println(strconv.Atoi("21a34"))
+	info, _ := ioutil.ReadDir("")
 }

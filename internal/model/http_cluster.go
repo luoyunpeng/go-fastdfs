@@ -223,7 +223,7 @@ func DownloadFromPeer(peer string, fileInfo *FileInfo, conf *config.Config) {
 		//migrate file
 		if fi, err = os.Stat(fpath); err == nil && fi.Size() == fileInfo.Size {
 			//prevent double download
-			_, _ = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf)
+			_ = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf)
 			//log.Info(fmt.Sprintf("file '%s' has download", fpath))
 			return
 		}
@@ -239,7 +239,7 @@ func DownloadFromPeer(peer string, fileInfo *FileInfo, conf *config.Config) {
 
 		if os.Rename(fpathTmp, fpath) == nil {
 			//svr.SaveFileMd5Log(fileInfo, FileMd5Name)
-			_, _ = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf)
+			_ = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf)
 		}
 
 		return
@@ -389,7 +389,7 @@ func PostFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 			// where not EnableDistinctFile should check
 			if info, err := checkPeerFileExist(peer, fileInfo.Md5, ""); info != nil && info.Md5 != "" {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
+				if err = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 					log.Error(err)
 				}
 
@@ -424,7 +424,7 @@ func PostFileToPeer(fileInfo *FileInfo, conf *config.Config) {
 			log.Info(result)
 			if !pkg.Contains(fileInfo.Peers, peer) {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
+				if err = SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 					log.Error(err)
 				}
 			}

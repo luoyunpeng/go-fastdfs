@@ -3,6 +3,7 @@ package model
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +19,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/astaxie/beego/httplib"
@@ -37,6 +37,7 @@ import (
 	"github.com/sjqzhang/tusd/filestore"
 )
 
+// TODO: to check
 func SetHttp(conf *config.Config) {
 	defaultTransport := &http.Transport{
 		DisableKeepAlives:   true,
@@ -56,22 +57,18 @@ func SetHttp(conf *config.Config) {
 	httplib.SetDefaultSetting(settings)
 }
 
-//
+// TODO: to check
 func WatchFilesChange(conf *config.Config) {
 	var (
-		w *watcher.Watcher
-		//fileInfo FileInfo
-		curDir string
-		err    error
-		qchan  chan *FileInfo
+		w      *watcher.Watcher
 		isLink bool
 	)
 
-	qchan = make(chan *FileInfo, conf.WatchChanSize())
+	qchan := make(chan *FileInfo, conf.WatchChanSize())
 	w = watcher.New()
 	w.FilterOps(watcher.Create)
 	//w.FilterOps(watcher.Create, watcher.Remove)
-	curDir, err = filepath.Abs(filepath.Dir(conf.StoreDir()))
+	curDir, err := filepath.Abs(filepath.Dir(conf.StoreDir()))
 	if err != nil {
 		log.Error(err)
 	}
@@ -129,7 +126,7 @@ func WatchFilesChange(conf *config.Config) {
 				if c.Op == watcher.Create.String() {
 					log.Info(fmt.Sprintf("Syncfile Add to Queue path:%s", c.Path+"/"+c.Name))
 					AppendToQueue(c, conf)
-					SaveFileInfoToLevelDB(c.Md5, c, conf.LevelDB(), conf)
+					_ = SaveFileInfoToLevelDB(c.Md5, c, conf.LevelDB(), conf)
 				}
 			}
 		}
@@ -160,8 +157,10 @@ func WatchFilesChange(conf *config.Config) {
 	}
 }
 
+// TODO: to check
 func ParseSmallFile(filename string, conf *config.Config) (string, int64, int, error) {
-	err := errors.New("unvalid small file")
+	err := errors.New("invalid small file")
+
 	if len(filename) < 3 {
 		return filename, -1, -1, err
 	}
@@ -185,37 +184,32 @@ func ParseSmallFile(filename string, conf *config.Config) (string, int64, int, e
 	}
 
 	if length > conf.SmallFileSize() || offset < 0 {
-		err = errors.New("invalid filesize or offset")
+		err = errors.New("invalid file size or offset")
 		return filename, -1, -1, err
 	}
 
 	return pos[0], offset, length, nil
 }
 
-//
+// TODO: to check
 func DownloadNormalFileByURI(ctx *gin.Context, conf *config.Config) (bool, error) {
 	var (
-		err        error
-		isDownload bool
-		imgWidth   int
-		imgHeight  int
-		width      string
-		height     string
+		err       error
+		imgWidth  int
+		imgHeight int
 	)
-
-	r := ctx.Request
 	w := ctx.Writer
 
-	isDownload = true
-	if ctx.Query("download") == "" {
+	isDownload := true
+	switch ctx.Query("download") {
+	case "0":
+		isDownload = false
+	default:
 		isDownload = conf.DefaultDownload()
 	}
-	if ctx.Query("download") == "0" {
-		isDownload = false
-	}
 
-	width = ctx.Query("width")
-	height = ctx.Query("height")
+	width := ctx.Query("width")
+	height := ctx.Query("height")
 	if width != "" {
 		imgWidth, err = strconv.Atoi(width)
 		if err != nil {
@@ -229,10 +223,10 @@ func DownloadNormalFileByURI(ctx *gin.Context, conf *config.Config) (bool, error
 		}
 	}
 	if isDownload {
-		pkg.SetDownloadHeader(w, r)
+		pkg.SetDownloadHeader(ctx)
 	}
 
-	fullPath, _ := GetFilePathFromRequest(ctx, conf)
+	fullPath, _ := GetFilePathFromRequest(ctx.Request.RequestURI, conf)
 	if imgWidth != 0 || imgHeight != 0 {
 		pkg.ResizeImage(w, fullPath, uint(imgWidth), uint(imgHeight))
 		return true, nil
@@ -241,80 +235,64 @@ func DownloadNormalFileByURI(ctx *gin.Context, conf *config.Config) (bool, error
 	return true, nil
 }
 
+// TODO: to check
 func DownloadNotFound(ctx *gin.Context, conf *config.Config) {
-	var (
-		err        error
-		fullPath   string
-		smallPath  string
-		isDownload bool
-		pathMd5    string
-		peer       string
-		fileInfo   *FileInfo
-	)
+	fullPath, smallPath := GetFilePathFromRequest(ctx.Request.RequestURI, conf)
+	isDownload := true
 
-	r := ctx.Request
-	w := ctx.Writer
-	fullPath, smallPath = GetFilePathFromRequest(ctx, conf)
-	isDownload = true
-	if ctx.Query("download") == "" {
+	switch ctx.Query("download") {
+	case "0":
+		isDownload = false
+	default:
 		isDownload = conf.DefaultDownload()
 	}
-	if ctx.Query("download") == "0" {
-		isDownload = false
-	}
+
+	pathMd5 := pkg.MD5(fullPath)
 	if smallPath != "" {
 		pathMd5 = pkg.MD5(smallPath)
-	} else {
-		pathMd5 = pkg.MD5(fullPath)
 	}
 
-	for _, peer = range conf.Peers() {
-		if fileInfo, err = checkPeerFileExist(peer, pathMd5, fullPath); err != nil {
+	for _, peer := range conf.Peers() {
+		fileInfo, err := checkPeerFileExist(peer, pathMd5, fullPath)
+		if err != nil {
 			log.Error(err)
 			continue
 		}
+
 		if fileInfo.Md5 != "" {
 			go DownloadFromPeer(peer, fileInfo, conf)
-			//http.Redirect(w, r, peer+r.RequestURI, 302)
+
 			if isDownload {
-				pkg.SetDownloadHeader(w, r)
+				pkg.SetDownloadHeader(ctx)
 			}
-			pkg.DownloadFileToResponse(peer+r.RequestURI, ctx)
+
+			pkg.DownloadFileToResponse(peer+ctx.Request.RequestURI, ctx)
 			return
 		}
 	}
 
-	w.WriteHeader(404)
-
-	return
+	ctx.Writer.WriteHeader(404)
 }
 
+// TODO: to check
 // GetSmallFileByURI
 func GetSmallFileByURI(ctx *gin.Context, conf *config.Config) ([]byte, bool, error) {
-	var (
-		err      error
-		data     []byte
-		offset   int64
-		length   int
-		fullPath string
-		info     os.FileInfo
-	)
-
-	r := ctx.Request
-	fullPath, _ = GetFilePathFromRequest(ctx, conf)
-	if _, offset, length, err = ParseSmallFile(r.RequestURI, conf); err != nil {
+	fullPath, _ := GetFilePathFromRequest(ctx.Request.RequestURI, conf)
+	_, offset, length, err := ParseSmallFile(ctx.Request.RequestURI, conf)
+	if err != nil {
 		return nil, false, err
 	}
 
-	if info, err = os.Stat(fullPath); err != nil {
+	osFileInfo, err := os.Stat(fullPath)
+	if err != nil {
 		return nil, false, err
 	}
 
-	if info.Size() < offset+int64(length) {
+	if osFileInfo.Size() < offset+int64(length) {
 		return nil, true, errors.New("noFound")
 	}
 
-	data, err = pkg.ReadFileByOffSet(fullPath, offset, length)
+	data, err := pkg.ReadFileByOffSet(fullPath, offset, length)
 	if err != nil {
 		return nil, false, err
 	}
@@ -322,22 +300,15 @@ func GetSmallFileByURI(ctx *gin.Context, conf *config.Config) ([]byte, bool, err
 	return data, false, err
 }
 
-//
+// TODO: to check
 func DownloadSmallFileByURI(ctx *gin.Context, conf *config.Config) (bool, error) {
 	var (
-		err        error
-		data       []byte
-		isDownload bool
-		imgWidth   int
-		imgHeight  int
-		width      string
-		height     string
-		notFound   bool
+		err       error
+		imgWidth  int
+		imgHeight int
 	)
 
-	r := ctx.Request
-	w := ctx.Writer
-	isDownload = true
+	isDownload := true
 	if ctx.Query("download") == "" {
 		isDownload = conf.DefaultDownload()
 	}
@@ -345,8 +316,8 @@ func DownloadSmallFileByURI(ctx *gin.Context, conf *config.Config) (bool, error)
 		isDownload = false
 	}
 
-	width = ctx.Query("width")
-	height = ctx.Query("height")
+	width := ctx.Query("width")
+	height := ctx.Query("height")
 	if width != "" {
 		imgWidth, err = strconv.Atoi(width)
 		if err != nil {
@@ -360,29 +331,25 @@ func DownloadSmallFileByURI(ctx *gin.Context, conf *config.Config) (bool, error)
 		}
 	}
 
-	data, notFound, err = GetSmallFileByURI(ctx, conf)
-	_ = notFound
+	data, _, err := GetSmallFileByURI(ctx, conf)
 	if data != nil && string(data[0]) == "1" {
 		if isDownload {
-			pkg.SetDownloadHeader(w, r)
+			pkg.SetDownloadHeader(ctx)
 		}
 		if imgWidth != 0 || imgHeight != 0 {
-			pkg.ResizeImageByBytes(w, data[1:], uint(imgWidth), uint(imgHeight))
+			pkg.ResizeImageByBytes(ctx.Writer, data[1:], uint(imgWidth), uint(imgHeight))
 			return true, nil
 		}
 
-		w.Write(data[1:])
+		_, _ = ctx.Writer.Write(data[1:])
 		return true, nil
 	}
 
 	return false, errors.New("not found")
 }
 
+// TODO: to optimise
 func SaveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config) {
-	saveFileMd5Log(fileInfo, md5FileName, conf)
-}
-
-func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config) {
 	if fileInfo == nil || fileInfo.Md5 == "" || md5FileName == "" {
 		log.Warn("saveFileMd5Log", fileInfo, md5FileName)
 		return
@@ -398,18 +365,19 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 	logKey := fmt.Sprintf("%s_%s_%s", logDate, md5FileName, fileInfo.Md5)
 	fileCount := int64(0)
 	fileSize := int64(0)
+	md5Path := pkg.MD5(fileFullPath)
 
 	switch md5FileName {
 	case conf.FileMd5():
 		fileCount = 1
 		fileSize = fileInfo.Size
-		if _, err := SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf); err != nil {
+		if err := SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf); err != nil {
 			log.Error(err)
 		}
-		if _, err := SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
+		if err := SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
-		if _, err := SaveFileInfoToLevelDB(pkg.MD5(fileFullPath), fileInfo, conf.LevelDB(), conf); err != nil {
+		if err := SaveFileInfoToLevelDB(md5Path, fileInfo, conf.LevelDB(), conf); err != nil {
 			log.Error("saveToLevelDB", err, fileInfo)
 		}
 
@@ -417,17 +385,15 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 		fileCount = -1
 		fileSize = -fileInfo.Size
 		_ = RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
-		md5Path := pkg.MD5(fileFullPath)
 		if err := RemoveKeyFromLevelDB(fileInfo.Md5, conf.LevelDB()); err != nil {
 			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
 		}
 		if err := RemoveKeyFromLevelDB(md5Path, conf.LevelDB()); err != nil {
 			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
 		}
-
-		// remove files.md5 for stat info(repair from LogLevelDb)
-		logKey = fmt.Sprintf("%s_%s_%s", logDate, conf.FileMd5(), fileInfo.Md5)
-		_ = RemoveKeyFromLevelDB(logKey, conf.LogLevelDB())
+		if err := RemoveKeyFromLevelDB(logKey, conf.LogLevelDB()); err != nil {
+			log.Error("RemoveKeyFromLevelDB", err, fileInfo)
+		}
 	}
 
 	if md5FileName == conf.FileMd5() || md5FileName == conf.RemoveMd5File() {
@@ -440,16 +406,13 @@ func saveFileMd5Log(fileInfo *FileInfo, md5FileName string, conf *config.Config)
 		readableSize := pkg.HumanSize(float64(totalSize))
 		conf.StatMap().Put(logDate+"_Read_"+conf.StatFileTotalSizeKey(), readableSize)
 		conf.StatMap().Put("Read_"+conf.StatFileTotalSizeKey(), readableSize)
+
 		SaveStat(conf)
 
 		return
 	}
 
-	_, _ = SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf)
-}
-
-func ExistFromLevelDB(key string, db *leveldb.DB) (bool, error) {
-	return db.Has([]byte(key), nil)
+	_ = SaveFileInfoToLevelDB(logKey, fileInfo, conf.LogLevelDB(), conf)
 }
 
 func GetFileInfoFromLevelDB(key string, conf *config.Config) (*FileInfo, error) {
@@ -502,18 +465,17 @@ func ReceiveMd5s(relativePath string, router *gin.RouterGroup, conf *config.Conf
 	})
 }
 
+// TODO: to check, no use
 // Read: GetMd5sMapByDate use given date and file name to get md5 which will uer to create a commonMap
 func GetMd5sMapByDate(date string, filename string, conf *config.Config) (*pkg.CommonMap, error) {
-	filePath := ""
 	result := pkg.NewCommonMap()
+	filePath := path.Join(conf.DataDir(), date, filename)
 	if filename == "" {
-		filePath = conf.DataDir() + "/" + date + "/" + conf.FileMd5()
-	} else {
-		filePath = conf.DataDir() + "/" + date + "/" + filename
+		filePath = path.Join(conf.DataDir(), date, conf.FileMd5())
 	}
 
 	if !pkg.FileExists(filePath) {
-		return result, fmt.Errorf("fpath %s not found", filePath)
+		return result, fmt.Errorf("file path %s does not found", filePath)
 	}
 
 	data, err := ioutil.ReadFile(filePath)
@@ -536,6 +498,7 @@ func GetMd5sMapByDate(date string, filename string, conf *config.Config) (*pkg.C
 	return result, nil
 }
 
+// TODO: to check
 //Read: ??
 func GetMd5sByDate(date string, filename string, conf *config.Config) (mapSet.Set, error) {
 	md5set := mapSet.NewSet()
@@ -554,10 +517,12 @@ func GetMd5sByDate(date string, filename string, conf *config.Config) (mapSet.Se
 	return md5set, nil
 }
 
+//TODO: to rm ?
 func GetRequestURI(action string) string {
 	return "/" + action
 }
 
+// TODO: to check
 func SaveSmallFile(fileInfo *FileInfo, conf *config.Config) error {
 	filename := fileInfo.Name
 	fileExt := path.Ext(filename)
@@ -567,7 +532,7 @@ func SaveSmallFile(fileInfo *FileInfo, conf *config.Config) error {
 	fPath := fileInfo.Path + "/" + filename
 	largeDir := conf.LargeDir() + "/" + conf.PeerId()
 	if !pkg.FileExists(largeDir) {
-		os.MkdirAll(largeDir, 0775)
+		_ = os.MkdirAll(largeDir, 0775)
 	}
 	reName := fmt.Sprintf("%d", pkg.RandInt(100, 300))
 	destPath := largeDir + "/" + reName
@@ -606,13 +571,14 @@ func SaveSmallFile(fileInfo *FileInfo, conf *config.Config) error {
 			return err
 		}
 
-		srcFile.Close()
-		os.Remove(fPath)
+		_ = srcFile.Close()
+		_ = os.Remove(fPath)
 	}
 
 	return nil
 }
 
+// TODO: to check
 func BenchMark(ctx *gin.Context, conf *config.Config) {
 	t := time.Now()
 	batch := new(leveldb.Batch)
@@ -642,22 +608,18 @@ func BenchMark(ctx *gin.Context, conf *config.Config) {
 	fmt.Println(time.Since(t).String())
 }
 
+// TODO: to check
 func RepairStatWeb(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.POST(relativePath, func(ctx *gin.Context) {
-		var result JsonResult
-
-		r := ctx.Request
-		if !IsPeer(r, conf) {
-			result.Message = GetClusterNotPermitMessage(r)
-			ctx.JSON(http.StatusNotFound, result)
+		if !IsPeer(ctx.Request, conf) {
+			ctx.JSON(http.StatusForbidden, GetClusterNotPermitMessage(ctx.Request))
 			return
 		}
 
 		date := ctx.Query("date")
 		inner := ctx.Query("inner")
 		if ok, err := regexp.MatchString("\\d{8}", date); err != nil || !ok {
-			result.Message = "invalid date"
-			ctx.JSON(http.StatusNotFound, result)
+			ctx.JSON(http.StatusBadRequest, "invalid date: "+date)
 			return
 		}
 
@@ -675,12 +637,11 @@ func RepairStatWeb(relativePath string, router *gin.RouterGroup, conf *config.Co
 			}
 		}
 
-		result.Data = RepairStatByDate(date, conf)
-		result.Status = "ok"
-		ctx.JSON(http.StatusOK, result)
+		ctx.JSON(http.StatusOK, RepairStatByDate(date, conf))
 	})
 }
 
+// TODO: to check
 func Stat(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.GET(relativePath, func(ctx *gin.Context) {
 		var (
@@ -688,7 +649,6 @@ func Stat(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 			category []string
 			barCount []int64
 			barSize  []int64
-			dataMap  map[string]interface{}
 		)
 
 		r := ctx.Request
@@ -704,7 +664,7 @@ func Stat(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 		result.Status = "ok"
 		result.Data = data
 		if eChart == "1" {
-			dataMap = make(map[string]interface{}, 3)
+			dataMap := make(map[string]interface{}, 3)
 			for _, v := range data {
 				barCount = append(barCount, v.FileCount)
 				barSize = append(barSize, v.TotalSize)
@@ -730,10 +690,10 @@ func AppendToQueue(fileInfo *FileInfo, conf *config.Config) {
 }
 
 func AppendToDownloadQueue(fileInfo *FileInfo, conf *config.Config) {
-
 	queueFromPeers <- *fileInfo
 }
 
+// TODO: to check
 func ConsumerDownLoad(conf *config.Config) {
 	ConsumerFunc := func() {
 		for fileInfo := range queueFromPeers {
@@ -761,6 +721,7 @@ func ConsumerDownLoad(conf *config.Config) {
 	}
 }
 
+// TODO: to check
 func RemoveDownloading(conf *config.Config) {
 	go func() {
 		for {
@@ -770,7 +731,7 @@ func RemoveDownloading(conf *config.Config) {
 				keys := strings.Split(string(key), "_")
 				if len(keys) == 3 {
 					if t, err := strconv.ParseInt(keys[1], 10, 64); err == nil && time.Now().Unix()-t > 60*10 {
-						os.Remove(keys[2])
+						_ = os.Remove(keys[2])
 					}
 				}
 			}
@@ -782,6 +743,7 @@ func RemoveDownloading(conf *config.Config) {
 	}()
 }
 
+// TODO: to check
 func LoadSearchDict(conf *config.Config) {
 	go func() {
 		log.Info("Load search dict ....")
@@ -802,11 +764,12 @@ func LoadSearchDict(conf *config.Config) {
 				}
 			}
 		}
-
-		log.Info("finish load search dict")
+		// TODO: unreachable code, to remove
+		// log.Info("finish load search dict")
 	}()
 }
 
+// TODO: to check
 func SaveSearchDict(conf *config.Config) {
 	conf.LockMap().LockKey(conf.SearchFile())
 	defer conf.LockMap().UnLockKey(conf.SearchFile())
@@ -824,6 +787,7 @@ func SaveSearchDict(conf *config.Config) {
 	}
 }
 
+// TODO: to check
 // Read :  AutoRepair what?
 func AutoRepair(forceRepair bool, conf *config.Config) {
 	if conf.LockMap().IsLock("AutoRepair") {
@@ -928,6 +892,7 @@ func AutoRepair(forceRepair bool, conf *config.Config) {
 	AutoRepairFunc(forceRepair)
 }
 
+// TODO: to check
 func CleanLogLevelDBByDate(date string, filename string, conf *config.Config) {
 	keys := mapSet.NewSet()
 	keyPrefix := "%s_%s_"
@@ -947,6 +912,7 @@ func CleanLogLevelDBByDate(date string, filename string, conf *config.Config) {
 	}
 }
 
+// TODO: to check
 func CleanAndBackUp(conf *config.Config) {
 	Clean := func() {
 		today := pkg.Today()
@@ -969,21 +935,28 @@ func CleanAndBackUp(conf *config.Config) {
 	}()
 }
 
-func LoadQueueSendToPeer(conf *config.Config) {
+// TODO: to check
+func LoadQueueSendToPeer(ctx context.Context, conf *config.Config) {
 	queue, err := LoadFileInfoByDate(pkg.Today(), conf.Md5QueueFile(), conf.LevelDB())
 	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	for fileInfo := range queue.Iter() {
-		//queueFromPeers <- *fileInfo.(*FileInfo)
-		// TODO: rm AppendToDownloadQueue
-		//AppendToDownloadQueue(fileInfo.(*info.FileInfo), conf)
-		queueFromPeers <- fileInfo.(FileInfo)
+	for {
+		select {
+		case fileInfo := <-queue.Iter():
+			//queueFromPeers <- *fileInfo.(*FileInfo)
+			// TODO: rm AppendToDownloadQueue
+			//AppendToDownloadQueue(fileInfo.(*info.FileInfo), conf)
+			queueFromPeers <- fileInfo.(FileInfo)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
+// TODO: no use?
 func SearchDict(kw string, conf *config.Config) []FileInfo {
 	var fileInfos []FileInfo
 
@@ -998,6 +971,7 @@ func SearchDict(kw string, conf *config.Config) []FileInfo {
 	return fileInfos
 }
 
+// TODO: check if can be replaced with pprof
 func Status(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.GET(relativePath, func(ctx *gin.Context) {
 		var status JsonResult
@@ -1067,70 +1041,6 @@ func Status(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 func HeartBeat(ctx *gin.Context) {
 }
 
-func test(conf *config.Config) {
-	testLock := func() {
-		wg := sync.WaitGroup{}
-		tt := func(i int, wg *sync.WaitGroup) {
-			//if server.lockMap.IsLock("xx") {
-			//	return
-			//}
-			//fmt.Println("timeer len",len(server.lockMap.Get()))
-			//time.Sleep(time.Nanosecond*10)
-			conf.LockMap().LockKey("xx")
-			defer conf.LockMap().UnLockKey("xx")
-			//time.Sleep(time.Nanosecond*1)
-			//fmt.Println("xx", i)
-			wg.Done()
-		}
-
-		go func() {
-			for {
-				time.Sleep(time.Second * 1)
-				fmt.Println("timeer len", len(conf.LockMap().Get()), conf.LockMap().Get())
-			}
-		}()
-
-		fmt.Println(len(conf.LockMap().Get()))
-		for i := 0; i < 10000; i++ {
-			wg.Add(1)
-			go tt(i, &wg)
-		}
-		fmt.Println(len(conf.LockMap().Get()))
-		fmt.Println(len(conf.LockMap().Get()))
-		conf.LockMap().LockKey("abc")
-		fmt.Println("lock")
-		time.Sleep(time.Second * 5)
-		conf.LockMap().UnLockKey("abc")
-		conf.LockMap().LockKey("abc")
-		conf.LockMap().UnLockKey("abc")
-	}
-
-	_ = testLock
-	testFile := func() {
-		var (
-			err error
-			f   *os.File
-		)
-		f, err = os.OpenFile("tt", os.O_CREATE|os.O_RDWR, 0777)
-		if err != nil {
-			fmt.Println(err)
-		}
-		f.WriteAt([]byte("1"), 100)
-		f.Seek(0, 2)
-		f.Write([]byte("2"))
-		//fmt.Println(f.Seek(0, 2))
-		//fmt.Println(f.Seek(3, 2))
-		//fmt.Println(f.Seek(3, 0))
-		//fmt.Println(f.Seek(3, 1))
-		//fmt.Println(f.Seek(3, 0))
-		//f.Write([]byte("1"))
-	}
-
-	_ = testFile
-	//testFile()
-	//testLock()
-}
-
 type hookDataStore struct {
 	tusd.DataStore
 	conf *config.Config
@@ -1191,7 +1101,7 @@ func (store hookDataStore) NewUpload(info tusd.FileInfo) (id string, err error) 
 	return store.DataStore.NewUpload(info)
 }
 
-//TODO: learn tus and change
+//TODO: read and optimise
 func initTus(conf *config.Config) {
 	BIG_DIR := conf.StoreDir() + "/_big/" + conf.PeerId()
 	os.MkdirAll(BIG_DIR, 0775)
@@ -1344,7 +1254,7 @@ func initTus(conf *config.Config) {
 				} else {
 					tpath := GetFilePathByInfo(fi, true)
 					if fi.Md5 != "" && pkg.FileExists(tpath) {
-						if _, err := SaveFileInfoToLevelDB(fInfo.ID, fi, conf.LevelDB(), conf); err != nil {
+						if err := SaveFileInfoToLevelDB(fInfo.ID, fi, conf.LevelDB(), conf); err != nil {
 							log.Error(err)
 						}
 						log.Info(fmt.Sprintf("file is found md5:%s", fi.Md5))
@@ -1379,7 +1289,7 @@ func initTus(conf *config.Config) {
 				}
 				log.Info(fileInfo)
 				os.Remove(infoFullPath)
-				if _, err = SaveFileInfoToLevelDB(fInfo.ID, fileInfo, conf.LevelDB(), conf); err != nil {
+				if err = SaveFileInfoToLevelDB(fInfo.ID, fileInfo, conf.LevelDB(), conf); err != nil {
 					//assosiate file id
 					log.Error(err)
 				}
@@ -1411,6 +1321,7 @@ func initTus(conf *config.Config) {
 	http.Handle(bigDir, http.StripPrefix(bigDir, handler))
 }
 
+// TODO: TO optimise
 // initComponent init current host ip
 func InitComponent(isReload bool, conf *config.Config) {
 	ip := os.Getenv("GO_FASTDFS_IP")
@@ -1482,27 +1393,23 @@ func InitComponent(isReload bool, conf *config.Config) {
 }
 
 // GetFilePathFromRequest
-func GetFilePathFromRequest(ctx *gin.Context, conf *config.Config) (string, string) {
+// TODO: fix path error
+func GetFilePathFromRequest(reqURI string, conf *config.Config) (string, string) {
 	smallPath := ""
-	requestURI := ctx.Request.RequestURI
-	fullPath := requestURI[1:]
+	fullPath := reqURI[1:]
 	fullPath = strings.Split(fullPath, "?")[0] // just path
 	fullPath = conf.StoreDirName() + "/" + fullPath
 	prefix := "/" + conf.LargeDir() + "/"
 
-	if strings.HasPrefix(requestURI, prefix) {
+	if strings.HasPrefix(reqURI, prefix) {
 		smallPath = fullPath //notice order
 		fullPath = strings.Split(fullPath, ",")[0]
 	}
+
 	fullPath, err := url.PathUnescape(fullPath)
 	if err != nil {
 		log.Println(err)
 	}
 
 	return fullPath, smallPath
-}
-
-func SaveUploadFile(headerFileName, tempFile string, fileInfo *FileInfo, r *http.Request, conf *config.Config) (*FileInfo, error) {
-
-	return nil, nil
 }

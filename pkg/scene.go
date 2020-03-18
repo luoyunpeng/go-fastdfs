@@ -8,10 +8,8 @@ func CheckScene(scene string, scenes []string) (bool, error) {
 		return true, nil
 	}
 
-	for _, s := range scenes {
-		if scene == s {
-			return true, nil
-		}
+	if Contains(scenes, scene) {
+		return true, nil
 	}
 
 	return false, errors.New("not valid scene")

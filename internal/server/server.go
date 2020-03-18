@@ -71,7 +71,7 @@ func signalListen(srv *http.Server, conf *config.Config) {
 	// a timeout of 5 seconds.
 	quit := make(chan os.Signal)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	log.Printf("receive %v, Exit", <-quit)
+	log.Printf("receive singal %v, Exit", <-quit)
 	log.Println("**** Graceful shutdown file server ****")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

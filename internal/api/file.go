@@ -130,7 +130,7 @@ func Report(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// Index point to upload page
+// Index route to upload page
 func Index(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.GET(relativePath, func(ctx *gin.Context) {
 		if conf.EnableWebUpload() {
@@ -184,20 +184,13 @@ func Download(relativePath string, router *gin.RouterGroup, conf *config.Config)
 		var err error
 
 		reqURI := ctx.Request.RequestURI
-		// if params is not enough then redirect to upload
-		if pkg.CheckUploadURIInvalid(reqURI) {
-			log.Warnf("RequestURI-%s is invalid, redirect to index", reqURI)
-			ctx.JSON(http.StatusBadRequest, "RequestURI is invalid")
-			return
-		}
-
 		if ok, err := model.CheckDownloadAuth(ctx, conf); !ok {
 			log.Error(err)
 			ctx.JSON(http.StatusUnauthorized, "not Permitted")
 			return
 		}
 
-		fullPath, smallPath := model.GetFilePathFromRequest(ctx, conf)
+		fullPath, smallPath := model.GetFilePathFromRequest(reqURI, conf)
 		if smallPath == "" {
 			if fileInfo, err = os.Stat(fullPath); err != nil {
 				model.DownloadNotFound(ctx, conf)
@@ -509,24 +502,12 @@ func Upload(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 
 func RemoveFile(relativePath string, router *gin.RouterGroup, conf *config.Config) {
 	router.DELETE(relativePath, func(ctx *gin.Context) {
-		var (
-			err      error
-			md5sum   string
-			fileInfo *model.FileInfo
-			fPath    string
-			delUrl   string
-			result   model.JsonResult
-			inner    string
-			name     string
-		)
-
 		r := ctx.Request
-		md5sum = ctx.Query("md5")
-		fPath = ctx.Query("path")
-		inner = ctx.Query("inner")
-		result.Status = "fail"
+		md5sum := ctx.Query("md5")
+		fPath := ctx.Query("path")
+		inner := ctx.Query("inner")
 		if !model.IsPeer(r, conf) {
-			ctx.JSON(http.StatusNotAcceptable, model.GetClusterNotPermitMessage(r))
+			ctx.JSON(http.StatusForbidden, model.GetClusterNotPermitMessage(r))
 			return
 		}
 
@@ -537,7 +518,14 @@ func RemoveFile(relativePath string, router *gin.RouterGroup, conf *config.Confi
 
 		if fPath != "" && md5sum == "" {
 			fPath = strings.Replace(fPath, conf.FileDownloadPathPrefix(), "/", 1)
+			fPath = strings.Trim(fPath, "/")
+			fPath = path.Join(conf.StoreDir(), fPath)
 			md5sum = pkg.MD5(fPath)
+		}
+
+		if len(md5sum) < 32 {
+			ctx.JSON(http.StatusBadRequest, "md5sum invalid")
+			return
 		}
 
 		if inner != "1" {
@@ -546,64 +534,50 @@ func RemoveFile(relativePath string, router *gin.RouterGroup, conf *config.Confi
 					continue
 				}
 
-				delFile := func(peer string, md5sum string, fileInfo *model.FileInfo) {
-					delUrl = peer + "/" + conf.FileDownloadPathPrefix()
+				delFile := func(peer string, md5sum string) {
+					delUrl := peer + "/" + "file"
 					req := httplib.Delete(delUrl)
 					req.Param("md5", md5sum)
 					req.Param("inner", "1")
 					req.SetTimeout(time.Second*5, time.Second*10)
 
-					if _, err = req.String(); err != nil {
+					if _, err := req.String(); err != nil {
 						log.Error(err)
 					}
 				}
 
-				go delFile(peer, md5sum, fileInfo)
+				go delFile(peer, md5sum)
 			}
 		}
 
-		if len(md5sum) < 32 {
-			result.Message = "md5 invalid"
-			ctx.JSON(http.StatusBadRequest, result)
-			return
-		}
-
-		if fileInfo, err = model.GetFileInfoFromLevelDB(md5sum, conf); err != nil {
-			result.Message = err.Error()
-			ctx.JSON(http.StatusNotFound, result)
+		fileInfo, err := model.GetFileInfoFromLevelDB(md5sum, conf)
+		if err != nil {
+			ctx.JSON(http.StatusNotFound, err.Error())
 			return
 		}
 
 		if fileInfo.OffSet >= 0 {
-			result.Message = "small file delete not support"
-
-			ctx.JSON(http.StatusNotFound, result)
+			ctx.JSON(http.StatusBadRequest, "small file delete not support")
 			return
 		}
 
-		name = fileInfo.Name
+		name := fileInfo.Name
 		if fileInfo.ReName != "" {
 			name = fileInfo.ReName
 		}
-		fPath = conf.StoreDir() + "/" + fileInfo.Path + "/" + name
+		fPath = path.Join(conf.StoreDir(), fileInfo.Path, name)
 		if fileInfo.Path != "" && pkg.FileExists(fPath) {
 			model.SaveFileMd5Log(fileInfo, conf.RemoveMd5File(), conf)
-			if err = os.Remove(fPath); err != nil {
-				result.Message = err.Error()
-
-				ctx.JSON(http.StatusNotFound, result)
+			if err := os.Remove(fPath); err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"delete file-" + fileInfo.Path + fileInfo.Name: err.Error()})
 				return
 			}
 
-			result.Message = "remove success"
-			result.Status = "ok"
-
-			ctx.JSON(http.StatusOK, result)
+			ctx.JSON(http.StatusOK, "remove success")
 			return
 		}
 
-		result.Message = "fail remove"
-		ctx.JSON(http.StatusNotFound, result)
+		ctx.JSON(http.StatusNotFound, "fail remove, no such file or md5sum is invalid")
 	})
 }
 
