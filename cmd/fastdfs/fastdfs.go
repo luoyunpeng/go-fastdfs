@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -43,7 +44,7 @@ func main() {
 	}()
 	go model.CleanAndBackUp(conf)
 	go model.CheckClusterStatus(conf)
-	go model.LoadQueueSendToPeer(conf)
+	go model.LoadQueueSendToPeer(context.Background(), conf)
 	go model.ConsumerPostToPeer(conf)
 	// go svr.ConsumerLog(conf)
 	go model.ConsumerDownLoad(conf)

@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -19,31 +18,20 @@ type StatDateFileInfo struct {
 }
 
 func RepairStatByDate(date string, conf *config.Config) StatDateFileInfo {
-	defer func() {
-		if re := recover(); re != nil {
-			buffer := debug.Stack()
-			log.Error("RepairStatByDate")
-			log.Error(re)
-			log.Error(string(buffer))
-		}
-	}()
-
 	var (
-		err       error
-		keyPrefix string
 		fileInfo  FileInfo
 		fileCount int64
 		fileSize  int64
 		stat      StatDateFileInfo
 	)
 
-	keyPrefix = "%s_%s_"
+	keyPrefix := "%s_%s_"
 	keyPrefix = fmt.Sprintf(keyPrefix, date, conf.FileMd5())
 	iter := conf.LevelDB().NewIterator(levelDBUtil.BytesPrefix([]byte(keyPrefix)), nil)
 	defer iter.Release()
 
 	for iter.Next() {
-		if err = config.Json.Unmarshal(iter.Value(), &fileInfo); err != nil {
+		if err := config.Json.Unmarshal(iter.Value(), &fileInfo); err != nil {
 			continue
 		}
 		fileCount = fileCount + 1
@@ -52,6 +40,7 @@ func RepairStatByDate(date string, conf *config.Config) StatDateFileInfo {
 	conf.StatMap().Put(date+"_"+conf.StatisticsFileCountKey(), fileCount)
 	conf.StatMap().Put(date+"_"+conf.StatFileTotalSizeKey(), fileSize)
 	SaveStat(conf)
+
 	stat.Date = date
 	stat.FileCount = fileCount
 	stat.TotalSize = fileSize
@@ -137,35 +126,30 @@ func GetStat(conf *config.Config) []StatDateFileInfo {
 }
 
 func FormatStatInfo(conf *config.Config) {
-	var (
-		data  []byte
-		err   error
-		count int64
-		stat  map[string]interface{}
-	)
+	var stat map[string]interface{}
 
 	if pkg.FileExists(conf.StatisticsFile()) {
-		if data, err = pkg.ReadFile(conf.StatisticsFile()); err != nil {
+		data, err := pkg.ReadFile(conf.StatisticsFile())
+		if err != nil {
 			log.Error(err)
-		} else {
-			if err = config.Json.Unmarshal(data, &stat); err != nil {
-				log.Error(err)
-			} else {
-				for k, v := range stat {
-					switch v.(type) {
-					case float64:
-						vv := strings.Split(fmt.Sprintf("%f", v), ".")[0]
-						if count, err = strconv.ParseInt(vv, 10, 64); err != nil {
-							log.Error(err)
-						} else {
-							conf.StatMap().Put(k, count)
-						}
-					default:
-						conf.StatMap().Put(k, v)
-					}
-				}
+			return
+		}
+
+		if err = config.Json.Unmarshal(data, &stat); err != nil {
+			log.Error(err)
+			return
+		}
+
+		for k, v := range stat {
+			switch v.(type) {
+			case float64:
+				val := int64(v.(float64))
+				conf.StatMap().Put(k, val)
+			default:
+				conf.StatMap().Put(k, v)
 			}
 		}
+
 	}
 
 	RepairStatByDate(pkg.Today(), conf)

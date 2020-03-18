@@ -630,15 +630,10 @@ func GetFileServerRunningAbsDir(appName string) (path string, err error) {
 	return filepath.Abs(filepath.Dir(appName))
 }
 
-//
-func CheckUploadURIInvalid(uri string) bool {
-	return uri == "/" || uri == ""
-}
-
 // SetDownloadHeader add download info to header
-func SetDownloadHeader(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment")
+func SetDownloadHeader(ctx *gin.Context) {
+	ctx.Writer.Header().Set("Content-Type", "application/octet-stream")
+	ctx.Writer.Header().Set("Content-Disposition", "attachment")
 }
 
 // CrossOrigin add cross info to header

@@ -84,7 +84,7 @@ md5ErrorFile: "errors.md5"
 md5QueueFile: "queue.md5"
 filesMd5Name: "files.md5"
 removesMd5File: "removes.md5"
-smallFileSize: 1024 * 1024
+smallFileSize: 10240000
 originPath: "/opt/fileServer"
 fileDownloadPathPrefix: "/hub"
 
